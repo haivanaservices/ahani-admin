@@ -28,6 +28,7 @@ export default async function MasterProfilePage() {
     <ProfileClient 
       agencyName={agency?.agency_name || 'Agency'} 
       hasFingerprint={hasFingerprint} 
+      agencyId={profile.agency_id}
     />
   );
 }

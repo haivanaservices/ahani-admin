@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 import { Building2, Mail, Lock, User, ShieldCheck, Zap, ShieldAlert } from 'lucide-react';
 import { createAgencyAccount } from './actions';
 import { useSearchParams } from 'next/navigation';
 
-export default function SignupPage() {
+function SignupContent() {
   const searchParams = useSearchParams();
   const urlMessage = searchParams.get('message');
   
@@ -202,5 +202,18 @@ export default function SignupPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+// Next.js requires Client Components using useSearchParams to be wrapped in a Suspense boundary
+export default function SignupPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <div className="text-slate-500 font-bold">Loading...</div>
+      </div>
+    }>
+      <SignupContent />
+    </Suspense>
   );
 }
