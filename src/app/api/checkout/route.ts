@@ -3,7 +3,7 @@ import Stripe from 'stripe';
 // Adjust this path if your utils folder is located elsewhere
 import { createClient } from '../../../utils/supabase/server'; 
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
   apiVersion: '2026-08-26.dahlia',
 });
 
