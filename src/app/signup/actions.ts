@@ -8,6 +8,7 @@ export async function createAgencyAccount(formData: FormData) {
   const password = formData.get('password') as string;
   const fullName = formData.get('fullName') as string;
   const agencyName = formData.get('agencyName') as string;
+  const agencyAddress = formData.get('agencyAddress') as string; // <-- Grabbed the new address field
 
   if (!email || !password) {
     redirect('/signup?error=Email and password are required.');
@@ -27,7 +28,21 @@ export async function createAgencyAccount(formData: FormData) {
 
   const supabase = await createClient();
 
-  // We pass the agencyName into the metadata. 
+  // 2. The Domain Bouncer (NEW LOGIC)
+  // Check if this organization's domain has already been claimed by an existing workspace
+  const { data: existingAgency } = await supabase
+    .from('agencies')
+    .select('id, agency_name')
+    .eq('email_domain', domain)
+    .single();
+
+  if (existingAgency) {
+    // 🛑 BLOCK: Domain is taken! Redirect to the request access waiting room.
+    redirect(`/onboarding/request-access?agencyId=${existingAgency.id}&agencyName=${encodeURIComponent(existingAgency.agency_name)}`);
+  }
+
+  // 3. Create Auth Account & Trigger Background Provisioning
+  // We pass the agencyName, agencyAddress, and email_domain into the metadata. 
   // The Postgres Trigger catches this and automatically builds the workspace in the background.
   const { data: authData, error: authError } = await supabase.auth.signUp({
     email,
@@ -35,7 +50,9 @@ export async function createAgencyAccount(formData: FormData) {
     options: {
       data: { 
         full_name: fullName,
-        agency_name: agencyName 
+        agency_name: agencyName,
+        agency_address: agencyAddress, // <-- Passed into the auth trigger payload
+        email_domain: domain           // <-- NEW: Pass the domain so the trigger can lock it down
       },
     }
   });

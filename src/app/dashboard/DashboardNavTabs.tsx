@@ -8,10 +8,9 @@ export default function DashboardNavTabs() {
 
   const tabs = [
     { name: 'Overview', href: '/dashboard' },
-    { name: 'Master Profile', href: '/dashboard/profile' },
     { name: 'Analytics', href: '/dashboard/analytics' },
     { name: 'Billing & Tiers', href: '/dashboard/billing' },
-    { name: 'Team Access', href: '/dashboard/team' }, // Added new tab
+    { name: 'Team Access', href: '/dashboard/team' }, 
   ];
 
   return (

@@ -1,17 +1,32 @@
+import { Suspense } from 'react';
 import { createClient } from '../../utils/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import NewCampaignModal from './NewCampaignModal';
 import CampaignTable from './CampaignTable';
 
-export default async function DashboardOverview() {
+// 1. MAIN EXPORTED PAGE (Static Shell)
+// This loads instantly and bypasses the Next.js blocking error.
+export default function DashboardOverview() {
+  return (
+    <div className="max-w-7xl mx-auto p-8 space-y-8 pb-20">
+      <Suspense fallback={<DashboardLoadingSkeleton />}>
+        <ProtectedDashboardContent />
+      </Suspense>
+    </div>
+  );
+}
+
+// 2. DYNAMIC DATA COMPONENT (Server Component)
+// This runs on the server, waits for Supabase, and streams the UI to the client.
+async function ProtectedDashboardContent() {
   const supabase = await createClient();
   
-  // 1. Identify the user
+  // Identify the user
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/login');
 
-  // 2. Fetch their Profile to get the agency_id
+  // Fetch their Profile to get the agency_id
   const { data: profile } = await supabase
     .from('profiles')
     .select('agency_id')
@@ -20,7 +35,7 @@ export default async function DashboardOverview() {
 
   if (!profile?.agency_id) redirect('/login');
 
-  // 3. Fetch the real Agency and Subscription data
+  // Fetch the real Agency and Subscription data
   const { data: agency } = await supabase
     .from('agencies')
     .select('agency_name')
@@ -33,7 +48,7 @@ export default async function DashboardOverview() {
     .eq('agency_id', profile.agency_id)
     .single();
 
-  // 4. Dynamic Math & Formatting
+  // Dynamic Math & Formatting
   const maxScans = subscription?.max_scans || 0;
   const scansUsed = subscription?.scans_used || 0;
   const scansRemaining = maxScans - scansUsed;
@@ -54,8 +69,7 @@ export default async function DashboardOverview() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto p-8 space-y-8 pb-20">
-      
+    <>
       {/* Dynamic Header */}
       <div className="flex justify-between items-end border-b border-slate-200 pb-6">
         <div>
@@ -130,7 +144,33 @@ export default async function DashboardOverview() {
 
       {/* Campaign Ledger Table */}
       <CampaignTable agencyId={profile.agency_id} />
+    </>
+  );
+}
 
+// 3. LOADING SKELETON
+// An elegant pulse UI that renders while waiting for the database.
+function DashboardLoadingSkeleton() {
+  return (
+    <div className="animate-pulse space-y-8">
+      {/* Header Skeleton */}
+      <div className="border-b border-slate-200 pb-6 flex justify-between items-end">
+        <div className="w-full">
+          <div className="h-8 bg-slate-200 rounded w-1/3 mb-2"></div>
+          <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+        </div>
+        <div className="h-10 bg-slate-200 rounded w-32"></div>
+      </div>
+
+      {/* Grid Skeleton */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 h-48"></div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 h-48"></div>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 h-48 lg:col-span-1 md:col-span-2"></div>
+      </div>
+
+      {/* Table Skeleton */}
+      <div className="bg-white rounded-2xl border border-slate-200 h-64 mt-8"></div>
     </div>
   );
 }

@@ -4,7 +4,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 
-
 const translations = [
   "In your language.",
   "En su idioma.",
@@ -32,16 +31,17 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#FAFAFA] flex flex-col font-sans text-slate-900">
       
+      {/* Persistent Top Menu Bar (Matches the rest of the site) */}
       <header className="w-full px-8 py-5 bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100 flex justify-between items-center">
-        <div className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition">
           <Image alt="Ahani Logo" className="rounded-full" height={40} src="/image_4fbdd3.png" width={40} />
           <span className="text-2xl font-bold tracking-tight text-slate-800">Ahani</span>
-        </div>
+        </Link>
         <nav className="hidden md:flex gap-6 items-center font-medium text-sm lg:text-base">
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/about">Our Mission</Link>
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/agencies">Empower Communities</Link>
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/how-it-works">How it Works</Link>
-          <Link className="text-slate-900 font-bold hover:text-slate-600 transition" href="/subscribe">Subscribe</Link>
+          <Link className="text-slate-900 font-bold hover:text-slate-600 transition" href="/login">Enterprise Login</Link>
           <Link className="bg-slate-900 text-white px-5 py-2 rounded-lg hover:bg-slate-800 transition shadow-sm" href="/contact">
             Contact
           </Link>
@@ -53,9 +53,9 @@ export default function LandingPage() {
           Bridging language. Building trust.
         </div>
         
-        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-8 leading-tight min-h-[140px] md:min-h-[160px]">
+        <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-8 leading-tight">
           Understand your mail. <br />
-          <span className="bg-gradient-to-r from-[#b37ebd] via-[#9bbca7] to-[#e8c17a] text-transparent bg-clip-text transition-all duration-300">
+          <span className="block h-[60px] md:h-[90px] mt-2 bg-gradient-to-r from-[#b37ebd] via-[#9bbca7] to-[#e8c17a] text-transparent bg-clip-text transition-all duration-300">
             {mounted ? translations[index] : "In your language."}
           </span>
         </h1>
@@ -75,6 +75,7 @@ export default function LandingPage() {
         </div>
       </main>
 
+      {/* Persistent Footer */}
       <footer className="w-full bg-slate-900 text-white py-6 px-8 border-t border-slate-800">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">

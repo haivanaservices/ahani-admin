@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, Suspense } from 'react';
-import { Building2, Mail, Lock, User, ShieldCheck, Zap, ShieldAlert } from 'lucide-react';
+import { Building2, Mail, Lock, User, ShieldCheck, Zap, ShieldAlert, MapPin } from 'lucide-react';
 import { createAgencyAccount } from './actions';
 import { useSearchParams } from 'next/navigation';
 
@@ -17,10 +17,18 @@ function SignupContent() {
     setIsLoading(true);
     setError('');
 
+    // 1. The Terms & Privacy Bouncer
+    const termsAccepted = formData.get('termsAccepted');
+    if (!termsAccepted) {
+      setError("You must read and accept the Terms of Service and Privacy Policy to initiate a pilot.");
+      setIsLoading(false);
+      return;
+    }
+
     const email = formData.get('email') as string;
     const domain = email.split('@')[1]?.toLowerCase();
     
-    // 1. The Pre-Flight Bouncer
+    // 2. The Pre-Flight Domain Bouncer
     const publicDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 'icloud.com'];
     
     if (domain && publicDomains.includes(domain)) {
@@ -29,7 +37,7 @@ function SignupContent() {
       return; // Stops the form from submitting and wiping their data
     }
 
-    // 2. If it's a custom domain, send it to the server action
+    // 3. If it passes all checks, send it to the server action
     try {
       await createAgencyAccount(formData);
     } catch (err: any) {
@@ -135,6 +143,23 @@ function SignupContent() {
               </div>
             </div>
 
+            {/* Agency Address */}
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">Agency Address</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                  <MapPin size={18} />
+                </div>
+                <input 
+                  type="text" 
+                  name="agencyAddress"
+                  required
+                  placeholder="123 Main St, Suite 100, City, State ZIP" 
+                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
+                />
+              </div>
+            </div>
+
             {/* Full Name */}
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">Your Full Name</label>
@@ -186,12 +211,32 @@ function SignupContent() {
               </div>
             </div>
 
+            {/* Terms and Privacy Checkbox */}
+            <div className="flex items-start mt-2">
+              <div className="flex items-center h-5">
+                <input
+                  id="termsAccepted"
+                  name="termsAccepted"
+                  type="checkbox"
+                  className="w-4 h-4 text-blue-600 bg-white border-slate-300 rounded focus:ring-blue-600 focus:ring-2 cursor-pointer"
+                />
+              </div>
+              <div className="ml-3 text-sm">
+                <label htmlFor="termsAccepted" className="font-medium text-slate-700 cursor-pointer">
+                  I have read and agree to the{' '}
+                  <a href="/terms" target="_blank" className="text-blue-600 hover:underline">Terms of Service</a>
+                  {' '}and{' '}
+                  <a href="/privacy" target="_blank" className="text-blue-600 hover:underline">Privacy Policy</a>.
+                </label>
+              </div>
+            </div>
+
             <button 
               type="submit"
               disabled={isLoading}
               className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition shadow-sm mt-4 disabled:bg-blue-400"
             >
-              {isLoading ? "Checking Domain..." : "Complete Setup & Start Pilot"}
+              {isLoading ? "Checking Details..." : "Complete Setup & Start Pilot"}
             </button>
 
           </form>

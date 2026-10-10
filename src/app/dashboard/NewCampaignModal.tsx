@@ -1,14 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { X, QrCode, Download, ArrowRight, Loader2 } from 'lucide-react';
-import QRCode from 'react-qr-code';
+import { X, ArrowRight, Loader2, FileText } from 'lucide-react';
 import { createCampaign } from '../actions';
 
 export default function NewCampaignModal() {
   const [isOpen, setIsOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeCampaign, setActiveCampaign] = useState<any>(null);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -16,33 +14,27 @@ export default function NewCampaignModal() {
     const formData = new FormData(e.currentTarget);
     
     try {
+      // 1. Create the campaign row in the database
       const campaign = await createCampaign(formData);
-      setActiveCampaign(campaign);
+      
+      // 2. Safeguard check: ensure we actually got an ID back
+      if (!campaign || !campaign.id) {
+        console.error("Server Action failed to return a valid Campaign ID:", campaign);
+        setIsSubmitting(false);
+        return; 
+      }
+
+      // 3. Close the modal
+      setIsOpen(false);
+      
+      // 4. THE FIX: Hard browser redirect instead of Next.js soft-routing.
+      // This bypasses the Next.js cache and guarantees the new URL loads fresh.
+      window.location.href = `/dashboard/setup/${campaign.id}`;
+      
     } catch (error) {
       console.error("Failed to create campaign", error);
-    } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const downloadQR = () => {
-    const svg = document.getElementById("CampaignQRCode");
-    if (!svg) return;
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const img = new Image();
-    img.onload = () => {
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx?.drawImage(img, 0, 0);
-      const pngFile = canvas.toDataURL("image/png");
-      const downloadLink = document.createElement("a");
-      downloadLink.download = `Ahani_QR_${activeCampaign.name}.png`;
-      downloadLink.href = `${pngFile}`;
-      downloadLink.click();
-    };
-    img.src = `data:image/svg+xml;base64,${btoa(svgData)}`;
   };
 
   return (
@@ -61,69 +53,59 @@ export default function NewCampaignModal() {
             {/* Header */}
             <div className="flex justify-between items-center p-6 border-b border-slate-100">
               <h2 className="text-xl font-bold text-slate-900">
-                {activeCampaign ? 'Campaign Generated' : 'Create New Campaign'}
+                Create New Campaign
               </h2>
-              <button onClick={() => { setIsOpen(false); setActiveCampaign(null); }} className="text-slate-400 hover:text-slate-600 transition">
+              <button onClick={() => setIsOpen(false)} className="text-slate-400 hover:text-slate-600 transition">
                 <X size={24} />
               </button>
             </div>
 
             <div className="p-6">
-              {!activeCampaign ? (
-                /* Step 1: Naming the Campaign */
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">Campaign Name</label>
-                    <input 
-                      type="text" 
-                      name="campaignName"
-                      required
-                      placeholder="e.g., Main Lobby Intake" 
-                      className="w-full border border-slate-300 rounded-lg p-3 text-slate-900 focus:ring-2 focus:ring-blue-600 focus:border-transparent outline-none"
-                    />
-                    <p className="text-xs text-slate-500 mt-2">This generates a unique routing QR code linked to your agency's scan quota.</p>
-                  </div>
-                  <button 
-                    type="submit" 
-                    disabled={isSubmitting}
-                    className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
-                  >
-                    {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : <QrCode size={20} />}
-                    {isSubmitting ? 'Generating...' : 'Generate Routing QR'}
-                  </button>
-                </form>
-              ) : (
-                /* Step 2: The Generated QR Code */
-                <div className="flex flex-col items-center text-center animate-in fade-in zoom-in duration-300">
-                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 mb-4 inline-block">
-                    <QRCode 
-                      id="CampaignQRCode"
-                      value={activeCampaign.qr_code_url} 
-                      size={200}
-                      level="H"
-                    />
-                  </div>
-                  <h3 className="text-lg font-bold text-slate-900">{activeCampaign.name}</h3>
-                  <p className="text-xs text-slate-500 mb-6 font-mono bg-slate-100 px-2 py-1 rounded mt-1">
-                    {activeCampaign.qr_code_url}
+              {/* Step 1: Naming the Campaign */}
+              <form onSubmit={handleSubmit} className="space-y-6">
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Campaign Name</label>
+                  <input 
+                    type="text" 
+                    name="campaignName"
+                    required
+                    placeholder="e.g., Main Lobby Intake" 
+                    className="w-full border border-slate-300 rounded-lg p-3 text-slate-900 focus:ring-2 focus:ring-purple-600 focus:border-transparent outline-none"
+                  />
+                  <p className="text-xs text-slate-500 mt-2">
+                    Name this specific routing link (e.g. "Housing Authority Lobby" or "Building C Notices").
                   </p>
-                  
-                  <div className="w-full space-y-3">
-                    <button 
-                      onClick={downloadQR}
-                      className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition flex items-center justify-center gap-2"
-                    >
-                      <Download size={18} /> Download High-Res PNG
-                    </button>
-                    <button 
-                      onClick={() => { setIsOpen(false); setActiveCampaign(null); }}
-                      className="w-full bg-white border border-slate-200 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-50 transition flex items-center justify-center gap-2"
-                    >
-                      Done <ArrowRight size={18} />
-                    </button>
+                </div>
+                
+                {/* Visual Context for the Persian Saga */}
+                <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 flex gap-3">
+                  <div className="text-purple-600 mt-0.5">
+                    <FileText size={20} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-purple-900">Next Step: Document Upload</h4>
+                    <p className="text-xs text-purple-700 mt-1">
+                      You will need to upload 5 sample documents on the next screen to train the translation model before your QR code can be generated.
+                    </p>
                   </div>
                 </div>
-              )}
+
+                <button 
+                  type="submit" 
+                  disabled={isSubmitting}
+                  className="w-full bg-purple-600 text-white font-bold py-3.5 rounded-xl hover:bg-purple-700 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="animate-spin" size={20} /> Starting Setup...
+                    </>
+                  ) : (
+                    <>
+                      Next: Upload 5 Samples <ArrowRight size={20} />
+                    </>
+                  )}
+                </button>
+              </form>
             </div>
           </div>
         </div>

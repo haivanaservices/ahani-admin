@@ -1,86 +1,122 @@
-import { Check, Shield, Zap, CreditCard, ArrowRight, Rocket } from 'lucide-react';
+import { Check, Shield, Zap, Calendar, CreditCard, Building } from 'lucide-react';
+import { createClient } from '../../../utils/supabase/server';
+import { redirect } from 'next/navigation';
+import CheckoutButton from './CheckoutButton'; // Adjust import path as needed
 
-export default function BillingTiers() {
-  // Placeholder for the agency's current active plan
-  const currentPlan = "free_pilot"; // Simulating a brand new agency exploring the dashboard
+// Add export const instant = false if you are using Next.js 15+ and getting the pre-rendering error here too
+export const instant = false; 
+
+export default async function BillingTiers() {
+  const supabase = await createClient();
+  
+  // 1. Fetch User & Profile
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect('/login');
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('agency_id')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile?.agency_id) redirect('/login');
+
+  // 2. Fetch Real Wallet Balance
+  const { data: subscription } = await supabase
+    .from('annual_subscriptions')
+    .select('plan_tier, max_scans, scans_used, expires_at')
+    .eq('agency_id', profile.agency_id)
+    .single();
+
+  const currentPlan = subscription?.plan_tier || "free_pilot";
+  const balance = (subscription?.max_scans || 0) - (subscription?.scans_used || 0);
+  
+  // Format the expiration date nicely
+  const expirationDate = subscription?.expires_at 
+    ? new Date(subscription.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : 'N/A';
 
   const tiers = [
     {
       id: "free_pilot",
+      priceId: null, // No Stripe ID for free tier
       name: "Self-Serve Pilot",
-      scans: "1,000",
+      sessions: "1,000",
       price: "$0",
-      description: "Zero friction. Generate your first QR code and test with real citizens today.",
-      features: ["1,000 Audio Scans", "1 Master Fingerprint", "Basic Analytics", "Community Support"],
+      description: "Zero friction. Upload your baseline documents and test with real citizens today.",
+      features: ["1,000 Document Assist Sessions", "Unlimited Document Fingerprints", "Unlimited QR Routing", "Title VI Analytics"],
       buttonText: "Active Plan",
       procurement: "No PO Required",
-      highlight: true
+      highlight: false,
+      icon: <Shield className="text-slate-400" size={20} />
     },
     {
-      id: "clinic",
-      name: "Single Clinic",
-      scans: "30,000",
+      id: "top_off",
+      priceId: "price_1U7gEgF94hMxkhyPLoqTR6RF", // Replace with a Stripe Price ID when you create this one!
+      name: "Standard Top-Off",
+      sessions: "+30,000",
       price: "$4,900",
-      description: "Micro-purchase friendly. Ideal for local clinics or single-office deployments.",
-      features: ["Up to 30,000 Audio Scans", "3 Master Fingerprints", "Title VI Analytics", "Standard Support"],
-      buttonText: "Upgrade to Clinic",
+      description: "Micro-purchase friendly. Instantly add capacity and extend your account expiration by 365 days.",
+      features: ["Adds 30,000 Sessions", "Extends Expiration 1 Year", "Instant Access", "Pay via P-Card (Stripe)"],
+      buttonText: "Top Off Balance",
       procurement: "Under $5k Limit",
-      highlight: false
+      highlight: true,
+      icon: <CreditCard className="text-blue-500" size={20} />
     },
     {
       id: "department",
-      name: "Department",
-      scans: "100,000",
-      price: "$11,900",
-      description: "Standard Purchase Order. Best for high-traffic city or county departments.",
-      features: ["Up to 100,000 Audio Scans", "10 Master Fingerprints", "Title VI Analytics", "Priority Support"],
-      buttonText: "Upgrade to Dept",
-      procurement: "Under $15k Limit",
-      highlight: false
+      priceId: "price_1U7NnLF94hMxkhyPlOLK97Vo", // Real $9,900 ID
+      name: "Department Tier",
+      sessions: "+100,000",
+      price: "$9,900",
+      description: "Standard P-Card Purchase. Best for high-traffic city or county departments.",
+      features: ["Adds 100,000 Sessions", "Extends Expiration 1 Year", "Invoice Provided", "Pay via ACH or Card"],
+      buttonText: "Purchase via Stripe",
+      procurement: "Under $10k Limit",
+      highlight: false,
+      icon: <Zap className="text-slate-400" size={20} />
     },
     {
-      id: "county",
-      name: "County Agency",
-      scans: "250,000",
+      id: "enterprise",
+      priceId: "price_1U7NofF94hMxkhyPI4uw5PBC", // Real $24,500 ID
+      name: "Enterprise Tier",
+      sessions: "+250,000",
       price: "$24,500",
-      description: "Bypasses formal RFP. Built for agencies mailing hundreds of thousands of notices.",
-      features: ["Up to 250,000 Audio Scans", "Unlimited Fingerprints", "API Access", "Dedicated Manager"],
-      buttonText: "Upgrade to County",
+      description: "Bypasses formal RFP. Built for transit authorities, state agencies, and sprawling networks.",
+      features: ["Adds 250,000 Sessions", "Extends Expiration 1 Year", "Enterprise Invoicing", "Pay via ACH or Wire"],
+      buttonText: "Generate Invoice / Pay",
       procurement: "Under $25k Limit",
-      highlight: false
+      highlight: false,
+      icon: <Building className="text-slate-400" size={20} />
     }
   ];
 
   return (
     <div className="max-w-7xl mx-auto p-8 space-y-8 pb-20">
       
-      {/* Page Header */}
-      <div className="flex justify-between items-end border-b border-slate-200 pb-6">
+      {/* Page Header with Real Database Metrics */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-200 pb-6 gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">Billing & Capacity</h1>
-          <p className="text-slate-500 mt-1">Manage your annual scan quota and procurement tiers.</p>
+          <p className="text-slate-500 mt-1">Manage your session quota, top-offs, and procurement.</p>
         </div>
-        <div className="text-right">
-          <p className="text-sm font-bold text-slate-900">Current Balance</p>
-          <p className="text-2xl font-extrabold text-blue-600">1,000 <span className="text-sm text-slate-500 font-medium">scans remaining</span></p>
-        </div>
-      </div>
-
-      {/* Active Subscription Banner - Tailored for the Free Pilot */}
-      <div className="bg-slate-900 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between text-white shadow-md">
-        <div className="flex items-center gap-4 mb-4 md:mb-0">
-          <div className="bg-blue-500/20 p-3 rounded-xl border border-blue-400/30 text-blue-400">
-            <Rocket size={24} />
-          </div>
+        
+        <div className="flex items-center gap-6 bg-white border border-slate-200 p-4 rounded-xl shadow-sm">
           <div>
-            <h2 className="text-lg font-bold">Self-Serve Pilot Active</h2>
-            <p className="text-slate-400 text-sm">You are currently testing Ahani. No credit card required.</p>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Current Balance</p>
+            <p className="text-3xl font-extrabold text-blue-600 leading-none">
+              {balance.toLocaleString()} <span className="text-sm text-slate-500 font-medium">sessions</span>
+            </p>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button className="bg-blue-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-blue-700 transition shadow-sm">
-            Generate First QR Code
-          </button>
+          <div className="h-10 w-px bg-slate-200"></div>
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+              <Calendar size={14} /> Valid Until
+            </p>
+            <p className="text-lg font-bold text-slate-800 leading-none mt-1.5">
+              {expirationDate}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -94,23 +130,32 @@ export default function BillingTiers() {
               key={tier.id} 
               className={`relative bg-white rounded-2xl border p-6 flex flex-col ${
                 isActive 
-                  ? 'border-blue-600 shadow-lg ring-1 ring-blue-600' 
+                  ? 'border-slate-300 shadow-sm' 
                   : tier.highlight 
-                    ? 'border-slate-300 shadow-md' 
+                    ? 'border-blue-500 shadow-lg ring-1 ring-blue-500/50 relative overflow-hidden' 
                     : 'border-slate-200 shadow-sm hover:border-slate-300'
               }`}
             >
+              {tier.highlight && (
+                <div className="absolute top-0 inset-x-0 h-1.5 bg-blue-500"></div>
+              )}
+
               {isActive && (
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-blue-600 text-white px-3 py-1 rounded-full text-xs font-bold tracking-wide shadow-sm">
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-200 text-slate-700 px-3 py-1 rounded-full text-xs font-bold tracking-wide shadow-sm border border-slate-300">
                   ACTIVE PLAN
                 </div>
               )}
               
               <div className="mb-6 mt-2">
                 <div className="flex justify-between items-start mb-2">
-                  <h3 className="text-lg font-bold text-slate-900">{tier.name}</h3>
+                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    {tier.icon}
+                    {tier.name}
+                  </h3>
                 </div>
-                <span className="bg-slate-100 text-slate-600 text-xs font-bold px-2 py-1 rounded-md mb-3 inline-block">
+                <span className={`text-xs font-bold px-2 py-1 rounded-md mb-3 inline-block ${
+                  tier.highlight ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                }`}>
                   {tier.procurement}
                 </span>
                 <p className="text-slate-500 text-sm h-16">{tier.description}</p>
@@ -119,10 +164,12 @@ export default function BillingTiers() {
               <div className="mb-6 pb-6 border-b border-slate-100">
                 <p className="text-3xl font-extrabold text-slate-900">{tier.price}</p>
                 <p className="text-sm font-medium text-slate-500 mt-1">
-                  {tier.price === "$0" ? "free forever" : "per year, billed annually"}
+                  {tier.price === "$0" ? "free forever" : "one-time payment"}
                 </p>
-                <p className="text-sm font-bold text-blue-600 mt-2 bg-blue-50 inline-block px-2 py-1 rounded">
-                  {tier.scans} total scans
+                <p className={`text-sm font-bold mt-2 inline-block px-2 py-1 rounded ${
+                  tier.highlight ? 'bg-blue-100 text-blue-800' : 'bg-slate-50 text-slate-700 border border-slate-200'
+                }`}>
+                  {tier.sessions} sessions
                 </p>
               </div>
 
@@ -135,36 +182,17 @@ export default function BillingTiers() {
                 ))}
               </ul>
 
-              <button 
-                disabled={isActive}
-                className={`w-full py-3 rounded-xl font-bold flex justify-center items-center gap-2 transition ${
-                  isActive 
-                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                    : 'bg-slate-900 text-white hover:bg-slate-800 shadow-sm'
-                }`}
-              >
-                {tier.buttonText}
-                {!isActive && <ArrowRight size={16} />}
-              </button>
+              {/* The New Interactive Client Component */}
+              <CheckoutButton 
+                agencyId={profile.agency_id}
+                priceId={tier.priceId}
+                buttonText={tier.buttonText}
+                isActive={isActive}
+                highlight={tier.highlight}
+              />
             </div>
           );
         })}
-      </div>
-
-      {/* Enterprise Catch-all */}
-      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 flex flex-col md:flex-row items-center justify-between mt-8">
-        <div>
-          <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
-            <Zap className="text-yellow-500" size={20} />
-            Need state-wide capacity?
-          </h3>
-          <p className="text-slate-500 text-sm mt-1">
-            State-level deployments starting at 500,000+ scans ($48,900/yr). Includes custom domain routing.
-          </p>
-        </div>
-        <button className="mt-4 md:mt-0 bg-white border border-slate-300 text-slate-900 font-bold px-6 py-3 rounded-xl hover:bg-slate-50 transition shadow-sm">
-          Contact Enterprise Sales
-        </button>
       </div>
 
     </div>
