@@ -1,3 +1,4 @@
+export const maxDuration = 60;
 import { createClient } from '../../../../utils/supabase/server';
 import { redirect } from 'next/navigation';
 import SetupClient from './SetupClient';
