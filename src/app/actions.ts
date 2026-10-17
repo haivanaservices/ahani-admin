@@ -1,5 +1,9 @@
 "use server";
 
+
+export const maxDuration = 60; // Prevents Vercel from timing out during AI analysis
+
+
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '../utils/supabase/server';
