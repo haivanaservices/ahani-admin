@@ -3,7 +3,7 @@ import Image from 'next/image';
 import { signIn } from '../actions';
 
 // Next.js 16 fix: This allows the route to read the URL parameters without crashing the compiler
-export const instant = false;
+export const dynamic = 'force-dynamic';
 
 export default async function LoginPage({
   searchParams,

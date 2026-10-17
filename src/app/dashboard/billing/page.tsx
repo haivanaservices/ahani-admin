@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation';
 import CheckoutButton from './CheckoutButton'; // Adjust import path as needed
 
 // Add export const instant = false if you are using Next.js 15+ and getting the pre-rendering error here too
-export const instant = false; 
+export const dynamic = 'force-dynamic';
 
 export default async function BillingTiers() {
   const supabase = await createClient();

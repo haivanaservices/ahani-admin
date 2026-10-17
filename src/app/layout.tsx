@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 
-export const instant = false;
+export const dynamic = 'force-dynamic';
 export const metadata: Metadata = {
   title: 'Ahani',
   description: 'Understand your mail in your language.',
