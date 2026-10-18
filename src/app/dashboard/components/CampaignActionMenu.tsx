@@ -44,9 +44,9 @@ export default function CampaignActionMenu({ campaignId, campaignName, qrUrl }: 
 
       {/* Hidden staging area for standard-res QR code generation */}
       <div className="hidden">
-        {/* CHANGED FROM 1024 TO 256 BELOW */}
-        <QRCodeCanvas id={`qr-canvas-${campaignId}`} value={qrUrl} size={256} level="M" />
-        <QRCodeSVG id={`qr-svg-${campaignId}`} value={qrUrl} size={256} level="M" />
+        {/* CHANGED FROM 1024 TO 256 BELOW, ADDED marginSize={4} */}
+        <QRCodeCanvas id={`qr-canvas-${campaignId}`} value={qrUrl} size={256} level="M" marginSize={4} />
+        <QRCodeSVG id={`qr-svg-${campaignId}`} value={qrUrl} size={256} level="M" marginSize={4} />
       </div>
 
       {/* 2. Pop-out Modal Overlay (Escapes the table boundary) */}
