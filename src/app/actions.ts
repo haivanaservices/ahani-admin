@@ -1,7 +1,5 @@
 "use server";
 
-
-
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createClient } from '../utils/supabase/server';
@@ -154,6 +152,7 @@ export async function setupCampaignFingerprint(formData: FormData) {
 
   const uploadedUrls: string[] = [];
   const openaiContent: any[] = [{ type: "text", text: "Analyze these agency sample documents and generate the Contextual Document DNA Profile." }];
+  let validImagesCount = 0;
 
   for (const file of files) {
     const fileExt = file.name.split('.').pop()?.toLowerCase();
@@ -175,18 +174,25 @@ export async function setupCampaignFingerprint(formData: FormData) {
       uploadedUrls.push(publicUrl);
     }
 
+    // 2. ONLY ATTACH VALID IMAGES TO OPENAI
     if (file.type.startsWith('image/')) {
       const base64Image = buffer.toString('base64');
       openaiContent.push({
         type: "image_url",
         image_url: { url: `data:${file.type};base64,${base64Image}` }
       });
+      validImagesCount++;
     }
   }
 
-  console.log(`Successfully uploaded ${uploadedUrls.length} files. Contacting OpenAI...`);
+  // 3. ANTI-HALLUCINATION SHIELD
+  if (validImagesCount === 0) {
+    throw new Error("You must upload at least one IMAGE file (JPG/PNG). PDFs cannot be visually analyzed by this endpoint.");
+  }
 
-  // 2. NEW: CONTEXTUAL DNA EXTRACTION PROMPT
+  console.log(`Successfully uploaded ${uploadedUrls.length} files. Contacting OpenAI with ${validImagesCount} images...`);
+
+  // 4. NEW: CONTEXTUAL DNA EXTRACTION PROMPT
   let aiMatrix;
   try {
     const response = await openai.chat.completions.create({
@@ -200,9 +206,9 @@ export async function setupCampaignFingerprint(formData: FormData) {
           Look closely at the text, headers, legal phrasing, typography, and subject matter across all samples.
           
           You must return a strict JSON object with the following exact keys:
-- "core_entities": Array of strings (Explicit names, department divisions, addresses, phone numbers, form codes).
-- "linguistic_markers": Array of strings (Recurring statutory codes, mandatory clauses, legal jargon, specific boilerplate phrases, and tone).
-- "contextual_spirit": A concise 2-3 sentence summary defining the exact domain, purpose, and types of mail this campaign issues.`
+          - "core_entities": Array of strings (Explicit names, department divisions, addresses, phone numbers, form codes).
+          - "linguistic_markers": Array of strings (Recurring statutory codes, mandatory clauses, legal jargon, specific boilerplate phrases, and tone).
+          - "contextual_spirit": A concise 2-3 sentence summary defining the exact domain, purpose, and types of mail this campaign issues.`
         },
         {
           role: "user",
@@ -213,13 +219,13 @@ export async function setupCampaignFingerprint(formData: FormData) {
 
     const aiContent = response.choices[0].message.content || '{}';
     aiMatrix = JSON.parse(aiContent);
-    console.log("OpenAI successfully generated Contextual DNA fingerprint.");
+    console.log("OpenAI successfully generated Contextual DNA fingerprint:", aiMatrix);
   } catch (openaiError: any) {
     console.error("OPENAI ERROR:", openaiError);
     throw new Error(`OpenAI Processing Failed: ${openaiError.message}`);
   }
 
-  // 3. CATCH DATABASE UPDATE ERRORS (Now saving the updated DNA structure + passing scores)
+  // 5. CATCH DATABASE UPDATE ERRORS
   const { error: dbError } = await supabase
     .from('campaigns')
     .update({ 
@@ -229,11 +235,11 @@ export async function setupCampaignFingerprint(formData: FormData) {
         core_entities: aiMatrix.core_entities || [], 
         linguistic_markers: aiMatrix.linguistic_markers || [], 
         contextual_spirit: aiMatrix.contextual_spirit || "No context extracted.", 
-        passing_score: 75, // Keeps DB and frontend UI in sync
+        passing_score: 75,
         total_score: 100,  
         baseline_urls: uploadedUrls
       },
-      samples_count: uploadedUrls.length // Clears the red flag on the dashboard
+      samples_count: uploadedUrls.length
     })
     .eq('id', campaignId);
 
@@ -243,8 +249,6 @@ export async function setupCampaignFingerprint(formData: FormData) {
   }
 
   console.log("Campaign successfully updated! Redirecting to dashboard...");
-
-  // Bounce them back to the main dashboard
   revalidatePath('/dashboard');
   redirect('/dashboard');
 }
