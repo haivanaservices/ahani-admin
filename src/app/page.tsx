@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
+import { Camera } from 'lucide-react';
 
 const translations = [
   "In your language.",
@@ -64,14 +65,17 @@ export default function LandingPage() {
           Ahani transforms any confusing letter, bill, or formal notice into plain text and spoken audio in your language. Listen to clear explanations and ask follow-up questions so you never have to guess.
         </p>
 
-        <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-          <button className="bg-slate-900 text-white px-8 py-4 rounded-xl font-semibold text-lg hover:bg-slate-800 transition shadow-lg flex items-center justify-center gap-2">
-            Download the App
-          </button>
-          
-          <Link className="bg-white text-slate-900 px-8 py-4 rounded-xl font-semibold text-lg hover:bg-slate-50 transition border border-slate-200 shadow-sm flex items-center justify-center gap-2" href="/login">
-            Enterprise Solutions
+        <div className="flex flex-col items-center gap-4 w-full sm:w-auto mt-4">
+          <Link 
+            href="/scan" 
+            className="bg-purple-600 text-white px-10 py-5 rounded-2xl font-bold text-xl hover:bg-purple-700 hover:scale-[1.02] transition-all shadow-xl shadow-purple-200 flex items-center justify-center gap-3 w-full sm:w-auto"
+          >
+            <Camera size={24} />
+            Start Scanning
           </Link>
+          <p className="text-sm text-slate-500 font-medium">
+            Free for agency mail • Pay-as-you-go for personal mail
+          </p>
         </div>
       </main>
 

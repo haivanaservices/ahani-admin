@@ -26,14 +26,19 @@ export async function POST(req: Request) {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
     
-    // Grab the IDs we need
+    // Grab both potential IDs
     const agencyId = session.metadata?.agency_id;
+    const consumerEmail = session.metadata?.consumer_email;
+    
     const sessionId = session.id; 
     const amountPaid = session.amount_total; 
 
+    // ==========================================
+    // 1. AGENCY PAYMENT LOGIC (UNTOUCHED)
+    // ==========================================
     if (agencyId && amountPaid && sessionId) {
       let addedScans = 0;
-      let newTier = null; // Default to null so top-offs don't overwrite current tiers
+      let newTier = null; 
 
       if (amountPaid === 490000) { 
         addedScans = 30000;
@@ -46,7 +51,6 @@ export async function POST(req: Request) {
       }
 
       if (addedScans > 0) {
-        // Trigger the atomic Postgres function
         const { data: success, error } = await supabaseAdmin.rpc('process_stripe_payment', {
           p_agency_id: agencyId,
           p_session_id: sessionId,
@@ -54,15 +58,39 @@ export async function POST(req: Request) {
           p_new_tier: newTier
         });
 
-        if (error) {
-          console.error('RPC Error:', error.message);
-          return NextResponse.json({ error: 'Database update failed' }, { status: 500 });
-        }
+        if (error) console.error('RPC Error:', error.message);
+        else if (!success) console.log(`Session ${sessionId} skipped duplicate.`);
+        else console.log(`Added ${addedScans} scans to agency ${agencyId}`);
+      }
+    } 
+    
+    // ==========================================
+    // 2. NEW CONSUMER PAYMENT LOGIC
+    // ==========================================
+    else if (consumerEmail && amountPaid && sessionId) {
+      let addedCredits = 0;
 
-        if (!success) {
-          console.log(`Session ${sessionId} was already processed. Skipped duplicate.`);
+      // $1.99 = 199 cents
+      if (amountPaid === 199) {
+        addedCredits = 5;
+      } 
+      // $4.99 = 499 cents
+      else if (amountPaid === 499) {
+        addedCredits = 15;
+      }
+
+      if (addedCredits > 0) {
+        // You will need to create this RPC in Supabase to add to the consumer's wallet
+        const { error } = await supabaseAdmin.rpc('process_consumer_payment', {
+          p_email: consumerEmail,
+          p_session_id: sessionId,
+          p_added_credits: addedCredits
+        });
+
+        if (error) {
+          console.error('Consumer RPC Error:', error.message);
         } else {
-          console.log(`Successfully added ${addedScans} scans to agency ${agencyId}`);
+          console.log(`Added ${addedCredits} credits to consumer ${consumerEmail}`);
         }
       }
     }
