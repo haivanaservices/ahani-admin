@@ -315,45 +315,45 @@ export default function AhaniWebScanner() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans">
       
       {/* App Bar */}
-      <header className="bg-white px-6 py-4 border-b border-slate-200 flex justify-between items-center sticky top-0 z-10">
-        <div className="flex items-center gap-3">
-          <Image alt="Ahani Logo" className="rounded-full" height={32} src="/image_4fbdd3.png" width={32} />
-          <h1 className="text-2xl font-bold text-purple-900 tracking-tight">Ahani</h1>
+      <header className="bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center sticky top-0 z-50 w-full">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Image alt="Ahani Logo" className="rounded-full w-8 h-8 sm:w-10 sm:h-10" height={32} src="/image_4fbdd3.png" width={32} />
+          <h1 className="text-xl sm:text-2xl font-bold text-purple-900 tracking-tight">Ahani</h1>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-1.5 sm:gap-2">
           <button 
             onClick={() => qrInputRef.current?.click()}
-            className="bg-purple-900 text-white px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5"
+            className="bg-purple-900 text-white px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-1.5"
           >
-            <QrCode size={16} /> Add Agency
+            <QrCode size={16} /> <span className="hidden xs:inline">Agency</span>
           </button>
           <button 
             onClick={() => router.push('/buy-credits')}
-            className={`px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5 ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-1.5 ${
               (creditBalance ?? 0) <= 0 ? 'bg-red-100 text-red-900' : 'bg-purple-100 text-purple-900'
             }`}
           >
             <CreditCard size={16} />
-            {creditBalance !== null ? `${creditBalance} Credits` : 'Wallet'}
+            {creditBalance !== null ? `${creditBalance}` : 'Wallet'}
           </button>
         </div>
       </header>
 
       {/* Hidden QR Code Picker */}
-<input 
-  type="file" 
-  accept="image/*" 
-  capture="environment" 
-  ref={qrInputRef} 
-  className="hidden" 
-  onChange={async (e) => {
-    if (!e.target.files?.[0]) return;
-    alert('Agency QR scanned and linked to your session!');
-  }} 
-/>
+      <input 
+        type="file" 
+        accept="image/*" 
+        capture="environment" 
+        ref={qrInputRef} 
+        className="hidden" 
+        onChange={async (e) => {
+          if (!e.target.files?.[0]) return;
+          alert('Agency QR scanned and linked to your session!');
+        }} 
+      />
 
       <main className="flex-grow p-6 flex flex-col max-w-2xl mx-auto w-full">
         
