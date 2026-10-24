@@ -54,8 +54,9 @@ export default function AhaniWebScanner() {
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [showEmailCapture, setShowEmailCapture] = useState(false);
 
-  // Mobile Menu State
+  // Mobile Menu State & Click-Outside Ref
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
 
   const [followUpText, setFollowUpText] = useState('');
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
@@ -64,6 +65,23 @@ export default function AhaniWebScanner() {
   const qrInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentImageFile = useRef<File | null>(null);
+
+  // Handle clicks outside of the mobile menu to close it
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (isMobileMenuOpen && headerRef.current && !headerRef.current.contains(event.target as Node)) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isMobileMenuOpen]);
 
   useEffect(() => {
     checkUserSession();
@@ -318,7 +336,7 @@ export default function AhaniWebScanner() {
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans relative">
       
       {/* App Bar - Fixed to Top */}
-      <header className="fixed top-0 left-0 w-full bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center z-[100]">
+      <header ref={headerRef} className="fixed top-0 left-0 w-full bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center z-[100]">
         <div className="flex items-center gap-2 sm:gap-3">
           <Image alt="Ahani Logo" className="rounded-full w-8 h-8 sm:w-10 sm:h-10" height={32} src="/image_4fbdd3.png" width={32} />
           <h1 className="text-xl sm:text-2xl font-bold text-purple-900 tracking-tight">Ahani</h1>
@@ -392,7 +410,7 @@ export default function AhaniWebScanner() {
         }} 
       />
 
-      {/* Main Content - Added pt-20 padding-top so the fixed header doesn't overlap content */}
+      {/* Main Content */}
       <main className="flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full">
         
         {/* Language & Voice Selector */}
