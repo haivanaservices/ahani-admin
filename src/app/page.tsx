@@ -2,8 +2,8 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
-import { Camera } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Camera, Menu, X } from 'lucide-react';
 
 const translations = [
   "In your language.",
@@ -20,7 +20,12 @@ const translations = [
 export default function LandingPage() {
   const [index, setIndex] = useState(0);
   const [mounted, setMounted] = useState(false);
+  
+  // Mobile Menu States
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
 
+  // Translation animation effect
   useEffect(() => {
     setMounted(true);
     const timer = setInterval(() => {
@@ -29,15 +34,34 @@ export default function LandingPage() {
     return () => clearInterval(timer);
   }, []);
 
+  // Click outside to close mobile menu
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (isMobileMenuOpen && headerRef.current && !headerRef.current.contains(event.target as Node)) {
+        setIsMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isMobileMenuOpen]);
+
   return (
     <div className="min-h-screen bg-[#FAFAFA] flex flex-col font-sans text-slate-900">
       
-      {/* Persistent Top Menu Bar (Matches the rest of the site) */}
-      <header className="w-full px-8 py-5 bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100 flex justify-between items-center">
+      {/* Persistent Top Menu Bar */}
+      <header ref={headerRef} className="w-full px-4 sm:px-8 py-4 sm:py-5 bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-100 flex justify-between items-center relative">
         <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition">
-          <Image alt="Ahani Logo" className="rounded-full" height={40} src="/image_4fbdd3.png" width={40} />
-          <span className="text-2xl font-bold tracking-tight text-slate-800">Ahani</span>
+          <Image alt="Ahani Logo" className="rounded-full w-8 h-8 sm:w-10 sm:h-10" height={40} src="/image_4fbdd3.png" width={40} />
+          <span className="text-xl sm:text-2xl font-bold tracking-tight text-slate-800">Ahani</span>
         </Link>
+        
+        {/* Desktop Navigation (Hidden on Mobile) */}
         <nav className="hidden md:flex gap-6 items-center font-medium text-sm lg:text-base">
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/about">Our Mission</Link>
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/agencies">Empower Communities</Link>
@@ -47,6 +71,57 @@ export default function LandingPage() {
             Contact
           </Link>
         </nav>
+
+        {/* Mobile Hamburger Button */}
+        <button 
+          className="md:hidden p-2 text-slate-700 hover:text-slate-900 focus:outline-none"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        >
+          {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
+        </button>
+
+        {/* Mobile Dropdown Menu */}
+        {isMobileMenuOpen && (
+          <div className="absolute top-full left-0 w-full bg-white border-b border-slate-200 shadow-xl flex flex-col md:hidden animate-in slide-in-from-top-2">
+            <Link 
+              href="/about" 
+              className="px-6 py-4 border-b border-slate-50 text-slate-700 font-medium"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Our Mission
+            </Link>
+            <Link 
+              href="/agencies" 
+              className="px-6 py-4 border-b border-slate-50 text-slate-700 font-medium"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Empower Communities
+            </Link>
+            <Link 
+              href="/how-it-works" 
+              className="px-6 py-4 border-b border-slate-50 text-slate-700 font-medium"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              How it Works
+            </Link>
+            <Link 
+              href="/login" 
+              className="px-6 py-4 border-b border-slate-50 text-slate-900 font-bold"
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              Enterprise Login
+            </Link>
+            <div className="p-6">
+              <Link 
+                href="/contact" 
+                className="block text-center bg-slate-900 text-white px-5 py-3 rounded-lg font-bold shadow-sm"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                Contact
+              </Link>
+            </div>
+          </div>
+        )}
       </header>
 
       <main className="flex-grow flex flex-col items-center justify-center text-center px-6 pt-20 pb-24 max-w-5xl mx-auto">
