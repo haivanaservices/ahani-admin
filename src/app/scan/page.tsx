@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { createClient } from '../../utils/supabase/client';
-import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, Loader2, QrCode } from 'lucide-react';
+import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, Loader2, QrCode, Menu } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
@@ -53,6 +53,9 @@ export default function AhaniWebScanner() {
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [showEmailCapture, setShowEmailCapture] = useState(false);
+
+  // Mobile Menu State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const [followUpText, setFollowUpText] = useState('');
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
@@ -211,7 +214,6 @@ export default function AhaniWebScanner() {
     }
   };
 
-  // Send Supabase OTP to link Email to Wallet
   const handleInitiateOtp = async () => {
     if (!emailInput.trim() || !emailInput.includes('@')) return;
     setIsSendingOtp(true);
@@ -235,13 +237,11 @@ export default function AhaniWebScanner() {
     }
   };
 
-  // Called after OTP is verified
   const handleOtpVerified = async () => {
     setShowOtpModal(false);
     setShowEmailCapture(false);
     await checkUserSession();
 
-    // Check credits after authentication
     const { data: balance } = await supabase.rpc('get_total_balance');
     if (balance && balance > 0) {
       if (currentImageFile.current) {
@@ -315,24 +315,26 @@ export default function AhaniWebScanner() {
   };
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans">
+    <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans relative">
       
-      {/* App Bar */}
-      <header className="bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center sticky top-0 z-50 w-full">
+      {/* App Bar - Fixed to Top */}
+      <header className="fixed top-0 left-0 w-full bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center z-[100]">
         <div className="flex items-center gap-2 sm:gap-3">
           <Image alt="Ahani Logo" className="rounded-full w-8 h-8 sm:w-10 sm:h-10" height={32} src="/image_4fbdd3.png" width={32} />
           <h1 className="text-xl sm:text-2xl font-bold text-purple-900 tracking-tight">Ahani</h1>
         </div>
-        <div className="flex gap-1.5 sm:gap-2">
+
+        {/* Desktop Navigation (Hidden on Mobile) */}
+        <div className="hidden sm:flex gap-2">
           <button 
             onClick={() => qrInputRef.current?.click()}
-            className="bg-purple-900 text-white px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-1.5"
+            className="bg-purple-900 text-white px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5"
           >
-            <QrCode size={16} /> <span className="hidden xs:inline">Agency</span>
+            <QrCode size={16} /> Agency
           </button>
           <button 
             onClick={() => router.push('/buy-credits')}
-            className={`px-2.5 sm:px-3 py-1.5 rounded-full text-xs sm:text-sm font-bold flex items-center gap-1 sm:gap-1.5 ${
+            className={`px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5 ${
               (creditBalance ?? 0) <= 0 ? 'bg-red-100 text-red-900' : 'bg-purple-100 text-purple-900'
             }`}
           >
@@ -340,6 +342,41 @@ export default function AhaniWebScanner() {
             {creditBalance !== null ? `${creditBalance}` : 'Wallet'}
           </button>
         </div>
+
+        {/* Mobile Hamburger Button (Visible only on Mobile) */}
+        <button 
+          className="sm:hidden p-2 text-slate-700 hover:text-slate-900 focus:outline-none"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+        >
+          {isMobileMenuOpen ? <X size={26} /> : <Menu size={26} />}
+        </button>
+
+        {/* Mobile Dropdown Menu */}
+        {isMobileMenuOpen && (
+          <div className="absolute top-full left-0 w-full bg-white border-b border-slate-200 shadow-xl p-4 flex flex-col gap-3 sm:hidden animate-in slide-in-from-top-2">
+            <button 
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                qrInputRef.current?.click();
+              }}
+              className="w-full bg-slate-100 text-slate-700 py-3.5 rounded-xl text-base font-bold flex items-center justify-center gap-2"
+            >
+              <QrCode size={18} /> Scan Agency QR
+            </button>
+            <button 
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                router.push('/buy-credits');
+              }}
+              className={`w-full py-3.5 rounded-xl text-base font-bold flex items-center justify-center gap-2 ${
+                (creditBalance ?? 0) <= 0 ? 'bg-red-100 text-red-900' : 'bg-purple-900 text-white'
+              }`}
+            >
+              <CreditCard size={18} />
+              {creditBalance !== null ? `Wallet: ${creditBalance} Credits` : 'Open Wallet'}
+            </button>
+          </div>
+        )}
       </header>
 
       {/* Hidden QR Code Picker */}
@@ -355,7 +392,8 @@ export default function AhaniWebScanner() {
         }} 
       />
 
-      <main className="flex-grow p-6 flex flex-col max-w-2xl mx-auto w-full">
+      {/* Main Content - Added pt-20 padding-top so the fixed header doesn't overlap content */}
+      <main className="flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full">
         
         {/* Language & Voice Selector */}
         <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col gap-2">
