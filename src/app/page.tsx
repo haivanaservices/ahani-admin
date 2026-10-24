@@ -66,19 +66,25 @@ export default function LandingPage() {
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/about">Our Mission</Link>
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/agencies">Empower Communities</Link>
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/how-it-works">How it Works</Link>
+          <Link className="text-slate-500 hover:text-slate-900 transition" href="/contact">Contact</Link>
           <Link className="text-slate-900 font-bold hover:text-slate-600 transition" href="/login">Enterprise Login</Link>
-          <Link className="bg-slate-900 text-white px-5 py-2 rounded-lg hover:bg-slate-800 transition shadow-sm" href="/contact">
-            Contact
-          </Link>
         </nav>
 
-        {/* Mobile Hamburger Button */}
-        <button 
-          className="md:hidden p-2 text-slate-700 hover:text-slate-900 focus:outline-none"
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-        >
-          {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
-        </button>
+        {/* Mobile Controls (Visible only on Mobile) */}
+        <div className="flex md:hidden items-center gap-4">
+          <Link 
+            href="/login" 
+            className="text-slate-900 font-bold text-sm hover:text-slate-600 transition"
+          >
+            Enterprise Login
+          </Link>
+          <button 
+            className="p-1 text-slate-700 hover:text-slate-900 focus:outline-none"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          >
+            {isMobileMenuOpen ? <X size={28} /> : <Menu size={28} />}
+          </button>
+        </div>
 
         {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
@@ -105,21 +111,12 @@ export default function LandingPage() {
               How it Works
             </Link>
             <Link 
-              href="/login" 
-              className="px-6 py-4 border-b border-slate-50 text-slate-900 font-bold"
+              href="/contact" 
+              className="px-6 py-4 border-b border-slate-50 text-slate-700 font-medium"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              Enterprise Login
+              Contact
             </Link>
-            <div className="p-6">
-              <Link 
-                href="/contact" 
-                className="block text-center bg-slate-900 text-white px-5 py-3 rounded-lg font-bold shadow-sm"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                Contact
-              </Link>
-            </div>
           </div>
         )}
       </header>
