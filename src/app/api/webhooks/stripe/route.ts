@@ -67,20 +67,30 @@ export async function POST(req: Request) {
     // ==========================================
     // 2. NEW CONSUMER PAYMENT LOGIC
     // ==========================================
-    else if (consumerEmail && amountPaid && sessionId) {
+    else if (consumerEmail && sessionId) {
+      // Fetch the exact line items from Stripe to verify the precise Price ID bought
+      const lineItems = await stripe.checkout.sessions.listLineItems(sessionId);
+      const purchasedPriceId = lineItems.data[0]?.price?.id;
+
       let addedCredits = 0;
 
-      // $1.99 = 199 cents
-      if (amountPaid === 199) {
+      // Explicit mapping of your actual live Price IDs
+      if (purchasedPriceId === 'price_1UUIPXF94hMxkhyPbEJ8PK91') {
         addedCredits = 5;
       } 
-      // $4.99 = 499 cents
+      else if (purchasedPriceId === 'price_1UUIPXF94hMxkhyPoASiS0Ue') {
+        addedCredits = 15;
+      } 
+      // Fallback backup logic just in case using amount
+      else if (amountPaid === 199) {
+        addedCredits = 5;
+      }
       else if (amountPaid === 499) {
         addedCredits = 15;
       }
 
       if (addedCredits > 0) {
-        // You will need to create this RPC in Supabase to add to the consumer's wallet
+        // Calls Supabase to safely add credits to the user's wallet
         const { error } = await supabaseAdmin.rpc('process_consumer_payment', {
           p_email: consumerEmail,
           p_session_id: sessionId,
