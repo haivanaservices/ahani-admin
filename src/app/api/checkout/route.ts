@@ -49,6 +49,7 @@ export async function POST(req: Request) {
       mode: 'payment',
       // Attach the verified agency ID so the webhook knows who paid
       metadata: { agency_id: secureAgencyId },
+      // THIS FORCES THEM DIRECTLY TO THE BILLING DASHBOARD WITH THE SUCCESS/CANCEL FLAG
       success_url: `${baseUrl}/dashboard/billing?checkout=success`,
       cancel_url: `${baseUrl}/dashboard/billing?checkout=canceled`,
     });

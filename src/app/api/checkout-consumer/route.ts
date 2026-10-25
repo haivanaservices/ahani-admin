@@ -24,10 +24,6 @@ export async function POST(req: Request) {
     const origin = req.headers.get('origin');
     const baseUrl = origin || process.env.NEXT_PUBLIC_BASE_URL || 'https://www.ahani.ai';
 
-    // SMART REDIRECT: Detect where the user clicked the button so they return to the right place
-    const referer = req.headers.get('referer') || '';
-    const returnPath = referer.includes('/buy-credits') ? '/buy-credits' : '/scan';
-
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{ price: priceId, quantity: 1 }],
@@ -37,8 +33,9 @@ export async function POST(req: Request) {
         // THIS IS THE FLAG THE WEBHOOK LOOKS FOR
         consumer_email: user.email 
       },
-      success_url: `${baseUrl}${returnPath}?checkout=success`,
-      cancel_url: `${baseUrl}${returnPath}?checkout=canceled`,
+      // THIS FORCES THEM DIRECTLY TO THE SCANNER WITH THE SUCCESS FLAG
+      success_url: `${baseUrl}/scan?checkout=success`,
+      cancel_url: `${baseUrl}/buy-credits`,
     });
 
     return NextResponse.json({ url: session.url });
