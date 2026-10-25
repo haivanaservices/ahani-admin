@@ -50,6 +50,7 @@ Deno.serve(async (req) => {
     let billedTo = 'citizen';
     let matchedAgencyId = null;
     let userEmail = null;
+    let userId = null; // Added so we can query citizen_wallets
 
     // 2. SECURELY IDENTIFY THE USER
     const authHeader = req.headers.get('authorization');
@@ -58,9 +59,10 @@ Deno.serve(async (req) => {
         const token = authHeader.replace('Bearer ', '');
         const { data: userData, error: userError } = await supabase.auth.getUser(token);
         
-        if (userData?.user?.email && !userError) {
+        if (userData?.user?.id && !userError) {
+          userId = userData.user.id;
           userEmail = userData.user.email;
-          console.log(`👤 Verified User Email: ${userEmail}`);
+          console.log(`👤 Verified User: ${userEmail} (${userId})`);
         }
       } catch (e) {
         console.log("Anonymous user detected, skipping auth extraction.");
@@ -127,42 +129,73 @@ Respond strictly with a valid JSON object in this format:
       }
     }
 
-    // 4. THE BOUNCER: CONSUMER PAYMENT DEDUCTION
+    // 4. THE BOUNCER: CONSUMER PAYMENT DEDUCTION (WATERFALL LOGIC)
     if (!matchedAgencyId) {
       console.log("🛑 BOUNCER: No Agency match established.");
-      
-      // If the frontend didn't explicitly request personal credit usage, prompt them.
-      if (!use_personal_credits && !allow_citizen_billing) {
-         console.log("🛑 BOUNCER: use_personal_credits is FALSE. Throwing 404 to prompt payment choice.");
-         return new Response(JSON.stringify({ 
-           error: 'No matching agency found. Prompting user for payment choice.' 
-         }), { 
-           status: 404,
-           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-         });
-      }
 
-      // They want to pay. Verify identity and deduct credit atomically.
-      if (!userEmail) {
-         console.log("🛑 BOUNCER: Missing user email. Cannot process personal credits.");
+      if (!userId) {
+         console.log("🛑 BOUNCER: Missing user ID. Cannot process personal credits.");
          return new Response(JSON.stringify({ error: 'Unauthorized. Please link your wallet.' }), { status: 401, headers: corsHeaders });
       }
 
-      console.log(`💸 Attempting to deduct 1 credit from ${userEmail}...`);
-      const { data: approved, error: deductionError } = await supabase.rpc('spend_consumer_credit', { user_email: userEmail });
+      // 4A. Fetch Wallet Data
+      const { data: walletData } = await supabase
+        .from('citizen_wallets')
+        .select('monthly_free_scans_used, monthly_free_scans_max, purchased_credits')
+        .eq('citizen_id', userId)
+        .single();
 
-      if (!approved || deductionError) {
-         console.log("❌ Deduction failed. Insufficient funds.", deductionError);
-         return new Response(JSON.stringify({ 
-           error: 'Insufficient personal credits.' 
-         }), { 
-           status: 402, 
-           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-         });
+      const wallet = walletData || { monthly_free_scans_max: 0, monthly_free_scans_used: 0, purchased_credits: 0 };
+      const freeScansLeft = Math.max(0, wallet.monthly_free_scans_max - wallet.monthly_free_scans_used);
+      const paidCredits = wallet.purchased_credits || 0;
+
+      let deductionType = '';
+
+      if (freeScansLeft > 0) {
+        console.log(`🎁 User has ${freeScansLeft} free scans left. Utilizing free tier.`);
+        deductionType = 'free';
+      } else {
+        console.log(`💳 Out of free scans. Checking purchased credits (Balance: ${paidCredits}).`);
+        
+        // If they have no free scans, check if frontend explicitly authorized paid credits
+        if (!use_personal_credits && !allow_citizen_billing) {
+           console.log("🛑 BOUNCER: use_personal_credits is FALSE. Throwing 404 to prompt payment choice.");
+           return new Response(JSON.stringify({ 
+             error: 'No matching agency found. Prompting user for payment choice.' 
+           }), { 
+             status: 404,
+             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+           });
+        }
+
+        if (paidCredits > 0) {
+          deductionType = 'paid';
+        } else {
+           console.log("❌ Deduction failed. Insufficient funds.");
+           return new Response(JSON.stringify({ 
+             error: 'Insufficient personal credits.' 
+           }), { 
+             status: 402, 
+             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+           });
+        }
+      }
+
+      console.log(`💸 Attempting to deduct 1 '${deductionType}' credit from ${userId}...`);
+      
+      // 4B. Execute Atomic Wallet Deduction RPC
+      const { error: deductionError } = await supabase.rpc('process_consumer_scan_deduction', { 
+        p_citizen_id: userId,
+        p_deduction_type: deductionType
+      });
+
+      if (deductionError) {
+         console.log("❌ Deduction RPC failed.", deductionError);
+         return new Response(JSON.stringify({ error: 'Failed to deduct credit.' }), { status: 500, headers: corsHeaders });
       }
       
       console.log("🟢 BOUNCER: Credit successfully deducted! Proceeding with Citizen Billing.");
-      billedTo = 'citizen';
+      billedTo = deductionType === 'free' ? 'citizen_free' : 'citizen_paid';
     }
 
     // 5. TRANSLATION & AUDIO ENGINE (Untouched)
@@ -187,7 +220,8 @@ STATUS: [URGENT / ACTION NEEDED / NO ACTION NEEDED / JUNK MAIL]
 SUMMARY: [Exactly 1 concise sentence explaining what this is.]
 KEY DETAILS:
 - [Detail 1]
-- [Detail 2]`;
+- [Detail 2]`
+;
       userPrompt = `Analyze this document.`;
     }
 

@@ -114,10 +114,27 @@ export default function AhaniWebScanner() {
 
   const fetchUserCredits = async () => {
     try {
-      const { data } = await supabase.rpc('get_total_balance');
-      if (data !== null) setCreditBalance(data);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('citizen_wallets')
+        .select('monthly_free_scans_max, monthly_free_scans_used, purchased_credits')
+        .eq('citizen_id', user.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+
+      if (data) {
+        const freeScansLeft = Math.max(0, (data.monthly_free_scans_max || 0) - (data.monthly_free_scans_used || 0));
+        const paidCredits = data.purchased_credits || 0;
+        setCreditBalance(freeScansLeft + paidCredits);
+      } else {
+        setCreditBalance(0);
+      }
     } catch (e) {
       console.error('Failed fetching credits:', e);
+      setCreditBalance(0);
     }
   };
 
@@ -205,7 +222,7 @@ export default function AhaniWebScanner() {
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
-      if (data.billed_to === 'citizen') {
+      if (data.billed_to && data.billed_to.startsWith('citizen')) {
         fetchUserCredits();
       }
 
@@ -260,13 +277,25 @@ export default function AhaniWebScanner() {
     setShowEmailCapture(false);
     await checkUserSession();
 
-    const { data: balance } = await supabase.rpc('get_total_balance');
-    if (balance && balance > 0) {
-      if (currentImageFile.current) {
-        processDocument(currentImageFile.current, true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data } = await supabase
+        .from('citizen_wallets')
+        .select('monthly_free_scans_max, monthly_free_scans_used, purchased_credits')
+        .eq('citizen_id', user.id)
+        .single();
+        
+      const freeLeft = Math.max(0, (data?.monthly_free_scans_max || 0) - (data?.monthly_free_scans_used || 0));
+      const paid = data?.purchased_credits || 0;
+      const balance = freeLeft + paid;
+
+      if (balance > 0) {
+        if (currentImageFile.current) {
+          processDocument(currentImageFile.current, true);
+        }
+      } else {
+        router.push('/buy-credits');
       }
-    } else {
-      router.push('/buy-credits');
     }
   };
 
