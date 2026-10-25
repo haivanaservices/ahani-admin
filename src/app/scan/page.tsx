@@ -366,9 +366,21 @@ export default function AhaniWebScanner() {
       
       {/* App Bar - Fixed to Top */}
       <header ref={headerRef} className="fixed top-0 left-0 w-full bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center z-[100]">
-        <div className="flex items-center gap-2 sm:gap-3">
+        
+        {/* Clickable Logo & Title Redirecting Home */}
+        <div 
+          className="flex items-center gap-2 sm:gap-3 cursor-pointer hover:opacity-80 transition"
+          onClick={() => router.push('/')}
+        >
           <Image alt="Ahani Logo" className="rounded-full w-8 h-8 sm:w-10 sm:h-10" height={32} src="/image_4fbdd3.png" width={32} />
-          <h1 className="text-xl sm:text-2xl font-bold text-purple-900 tracking-tight">Ahani</h1>
+          <div className="flex flex-col">
+            <h1 className="text-xl sm:text-2xl font-bold text-purple-900 tracking-tight leading-none">Ahani</h1>
+            {currentUserEmail && (
+              <span className="text-[10px] sm:text-xs text-slate-500 mt-1 font-medium hidden sm:block">
+                {currentUserEmail}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Desktop Navigation (Hidden on Mobile) */}
@@ -401,6 +413,11 @@ export default function AhaniWebScanner() {
         {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
           <div className="absolute top-full left-0 w-full bg-white border-b border-slate-200 shadow-xl p-4 flex flex-col gap-3 sm:hidden animate-in slide-in-from-top-2">
+            {currentUserEmail && (
+              <p className="text-xs text-center text-slate-500 font-bold border-b border-slate-100 pb-2">
+                Logged in as: {currentUserEmail}
+              </p>
+            )}
             <button 
               onClick={() => {
                 setIsMobileMenuOpen(false);
