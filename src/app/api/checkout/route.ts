@@ -38,6 +38,10 @@ export async function POST(req: Request) {
 
     const secureAgencyId = profile.agency_id;
 
+    // Dynamically determine the base URL to prevent localhost redirects in production
+    const origin = req.headers.get('origin');
+    const baseUrl = origin || process.env.NEXT_PUBLIC_BASE_URL || 'https://www.ahani.ai';
+
     // 4. Generate the Stripe Checkout Session using the verified ID
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card', 'us_bank_account'],
@@ -45,8 +49,8 @@ export async function POST(req: Request) {
       mode: 'payment',
       // Attach the verified agency ID so the webhook knows who paid
       metadata: { agency_id: secureAgencyId },
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/billing?checkout=success`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard/billing?checkout=canceled`,
+      success_url: `${baseUrl}/dashboard/billing?checkout=success`,
+      cancel_url: `${baseUrl}/dashboard/billing?checkout=canceled`,
     });
 
     return NextResponse.json({ url: session.url });
