@@ -152,7 +152,7 @@ export default function BuyCreditsPage() {
                 </div>
                 
                 <ConsumerCheckoutButton 
-                  priceId="price_123" 
+                  priceId="price_1UUIPXF94hMxkhyPbEJ8PK91" 
                   buttonText="Buy 5 Credits" 
                 />
               </div>
@@ -171,7 +171,7 @@ export default function BuyCreditsPage() {
                 </div>
                 
                 <ConsumerCheckoutButton 
-                  priceId="price_456" 
+                  priceId="price_1UUIPXF94hMxkhyPoASiS0Ue" 
                   buttonText="Buy 15 Credits" 
                   highlight={true} 
                 />
