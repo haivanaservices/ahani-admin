@@ -1,19 +1,31 @@
 "use client";
 
 import { useState, Suspense } from 'react';
-import { Building2, Mail, Lock, User, ShieldCheck, Zap, ShieldAlert, MapPin } from 'lucide-react';
+import { Building2, Mail, Lock, User, ShieldCheck, Zap, ShieldAlert, MapPin, Loader2, X } from 'lucide-react';
 import { createAgencyAccount } from './actions';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { createClient } from '../../utils/supabase/client';
 
 function SignupContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const urlMessage = searchParams.get('message');
   
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Client-side interceptor
-  const handleSubmit = async (formData: FormData) => {
+  // OTP Modal States
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  // FIX: Switched to standard form event to prevent automatic resetting
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); // Stops the browser from clearing the form
+    
+    const formData = new FormData(e.currentTarget);
+    
     setIsLoading(true);
     setError('');
 
@@ -34,26 +46,58 @@ function SignupContent() {
     if (domain && publicDomains.includes(domain)) {
       setError("This registration page is strictly for provisioning new Agency Pilot workspaces. Please use an official organizational email to create an agency account.");
       setIsLoading(false);
-      return; // Stops the form from submitting and wiping their data
+      return;
     }
 
     // 3. If it passes all checks, send it to the server action
     try {
       await createAgencyAccount(formData);
+      
+      // If we get here, the account was created and the 6-digit code was sent!
+      setRegisteredEmail(email);
+      setShowOtpModal(true);
+      setIsLoading(false);
+      
     } catch (err: any) {
-      // Bulletproof Next.js redirect check (works on all versions)
       if (err?.message === 'NEXT_REDIRECT' || err?.digest?.includes('NEXT_REDIRECT')) {
-        throw err;
+        setRegisteredEmail(email);
+        setShowOtpModal(true);
+        setIsLoading(false);
+        return;
       }
       
-      console.error(err); // Prints the real error to your browser console just in case
+      console.error(err);
       setError("Something went wrong processing your registration. Please try again.");
       setIsLoading(false);
     }
   };
 
+  const handleVerifyOtp = async () => {
+    if (otpCode.length !== 6) {
+      setError("Please enter the 6-digit code exactly as it appears in your email.");
+      return;
+    }
+
+    setIsVerifying(true);
+    setError('');
+    const supabase = createClient();
+
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      email: registeredEmail,
+      token: otpCode,
+      type: 'signup'
+    });
+
+    if (verifyError) {
+      setError(verifyError.message || "Invalid or expired verification code.");
+      setIsVerifying(false);
+    } else {
+      router.push('/dashboard'); 
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row relative">
       
       {/* Left Side: Trust & Value Prop */}
       <div className="md:w-5/12 bg-slate-900 text-white p-12 flex flex-col justify-between">
@@ -106,10 +150,11 @@ function SignupContent() {
           <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Register for an Agency Pilot</h2>
           <p className="text-slate-500 mb-8">Please use an official organizational email (.gov, .org, etc).</p>
 
-          <form action={handleSubmit} className="space-y-5">
+          {/* FIX: Changed from action={handleSubmit} to onSubmit={handleSubmit} */}
+          <form onSubmit={handleSubmit} className="space-y-5">
             
             {/* The Unmissable Error Box */}
-            {error && (
+            {error && !showOtpModal && (
               <div className="p-4 mb-4 text-sm text-red-900 rounded-xl bg-red-100 border-2 border-red-200 flex items-start gap-3 shadow-sm">
                 <ShieldAlert className="shrink-0 text-red-600 mt-0.5" size={20} />
                 <div>
@@ -120,7 +165,7 @@ function SignupContent() {
             )}
 
             {/* The Success Box */}
-            {urlMessage && !error && (
+            {urlMessage && !error && !showOtpModal && (
               <div className="p-4 mb-4 text-sm text-green-900 rounded-xl bg-green-50 border-2 border-green-200">
                 {urlMessage}
               </div>
@@ -234,9 +279,9 @@ function SignupContent() {
             <button 
               type="submit"
               disabled={isLoading}
-              className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition shadow-sm mt-4 disabled:bg-blue-400"
+              className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition shadow-sm mt-4 disabled:bg-blue-400 flex items-center justify-center gap-2"
             >
-              {isLoading ? "Checking Details..." : "Complete Setup & Start Pilot"}
+              {isLoading ? <><Loader2 className="animate-spin" size={20} /> Provisioning...</> : "Complete Setup & Start Pilot"}
             </button>
 
           </form>
@@ -246,16 +291,62 @@ function SignupContent() {
           </p>
         </div>
       </div>
+
+      {/* OTP Verification Modal */}
+      {showOtpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-md mx-auto rounded-3xl p-8 shadow-2xl relative">
+            <button 
+              onClick={() => setShowOtpModal(false)} 
+              className="absolute top-4 right-4 p-2 bg-slate-100 rounded-full text-slate-500 hover:text-slate-900"
+            >
+              <X size={20} />
+            </button>
+            
+            <div className="text-center">
+              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Mail size={28} className="text-blue-600" />
+              </div>
+              <h2 className="text-2xl font-extrabold text-slate-900 mb-2">Check your email</h2>
+              <p className="text-slate-500 mb-6 text-sm">
+                We've sent a 6-digit confirmation code to <span className="font-bold text-slate-800">{registeredEmail}</span>. Enter it below to activate your pilot.
+              </p>
+
+              {error && (
+                <div className="p-3 mb-4 text-sm text-red-900 rounded-lg bg-red-100 border border-red-200 text-left">
+                  {error}
+                </div>
+              )}
+
+              <input 
+                type="text"
+                maxLength={6}
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                placeholder="000000"
+                className="w-full text-center tracking-[0.5em] font-mono text-3xl border border-slate-300 rounded-xl px-4 py-4 outline-none focus:ring-2 focus:ring-blue-600 mb-4"
+              />
+
+              <button 
+                onClick={handleVerifyOtp}
+                disabled={isVerifying || otpCode.length !== 6}
+                className="w-full bg-blue-600 text-white py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-blue-700 transition disabled:opacity-50"
+              >
+                {isVerifying ? <Loader2 className="animate-spin" size={20} /> : 'Verify & Launch Workspace'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-// Next.js requires Client Components using useSearchParams to be wrapped in a Suspense boundary
 export default function SignupPage() {
   return (
     <Suspense fallback={
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <div className="text-slate-500 font-bold">Loading...</div>
+        <Loader2 className="animate-spin text-blue-600" size={32} />
       </div>
     }>
       <SignupContent />
