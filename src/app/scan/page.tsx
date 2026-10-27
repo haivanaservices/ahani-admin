@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { createClient } from '../../utils/supabase/client';
-import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, Loader2, QrCode, Menu, Search } from 'lucide-react';
+import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, Loader2, QrCode, Menu, Search, LogOut } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
@@ -374,6 +374,12 @@ export default function AhaniWebScanner() {
     setCanShowFollowUp(true);
   };
 
+  // NEW: Sign Out function to clear ghosts
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.refresh();
+  };
+
   // Filter languages for the custom dropdown
   const filteredLanguages = languages.filter(l => l.toLowerCase().includes(langSearch.toLowerCase()));
 
@@ -400,7 +406,7 @@ export default function AhaniWebScanner() {
         </div>
 
         {/* Desktop Navigation (Hidden on Mobile) */}
-        <div className="hidden sm:flex gap-2">
+        <div className="hidden sm:flex gap-2 items-center">
           <button 
             onClick={() => qrInputRef.current?.click()}
             className="bg-purple-900 text-white px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5"
@@ -416,6 +422,14 @@ export default function AhaniWebScanner() {
             <CreditCard size={16} />
             {creditBalance !== null ? `${creditBalance}` : 'Wallet'}
           </button>
+          {currentUserEmail && (
+            <button 
+              onClick={handleSignOut}
+              className="px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5 bg-red-50 text-red-700 hover:bg-red-100 transition"
+            >
+              <LogOut size={16} />
+            </button>
+          )}
         </div>
 
         {/* Mobile Hamburger Button (Visible only on Mobile) */}
@@ -455,6 +469,17 @@ export default function AhaniWebScanner() {
               <CreditCard size={18} />
               {creditBalance !== null ? `Wallet: ${creditBalance} Credits` : 'Open Wallet'}
             </button>
+            {currentUserEmail && (
+              <button 
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  handleSignOut();
+                }}
+                className="w-full bg-red-50 text-red-700 py-3.5 rounded-xl text-base font-bold flex items-center justify-center gap-2 mt-2 border border-red-100"
+              >
+                <LogOut size={18} /> Sign Out
+              </button>
+            )}
           </div>
         )}
       </header>
