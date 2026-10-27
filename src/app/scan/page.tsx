@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import { createClient } from '../../utils/supabase/client';
-import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, Loader2, QrCode, Menu } from 'lucide-react';
+import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, Loader2, QrCode, Menu, Search } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
@@ -28,7 +28,7 @@ const FALLBACK_LANGUAGES = [
 ];
 
 export default function AhaniWebScanner() {
-  const supabase = createClient();
+  const [supabase] = useState(() => createClient());
   const router = useRouter();
 
   const [isLoading, setIsLoading] = useState(false);
@@ -43,10 +43,14 @@ export default function AhaniWebScanner() {
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [languages, setLanguages] = useState(FALLBACK_LANGUAGES);
   
+  // Custom Searchable Dropdown States
+  const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
+  const [langSearch, setLangSearch] = useState('');
+  const langDropdownRef = useRef<HTMLDivElement>(null);
+  
   const [creditBalance, setCreditBalance] = useState<number | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
-  // Fallback Modal & Auth Flow States
   const [showNoMatchModal, setShowNoMatchModal] = useState(false);
   const [isAgencyOffline, setIsAgencyOffline] = useState(false);
   const [emailInput, setEmailInput] = useState('');
@@ -54,7 +58,6 @@ export default function AhaniWebScanner() {
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [showEmailCapture, setShowEmailCapture] = useState(false);
 
-  // Mobile Menu State & Click-Outside Ref
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
 
@@ -66,11 +69,13 @@ export default function AhaniWebScanner() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentImageFile = useRef<File | null>(null);
 
-  // Handle clicks outside of the mobile menu to close it
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
       if (isMobileMenuOpen && headerRef.current && !headerRef.current.contains(event.target as Node)) {
         setIsMobileMenuOpen(false);
+      }
+      if (isLangDropdownOpen && langDropdownRef.current && !langDropdownRef.current.contains(event.target as Node)) {
+        setIsLangDropdownOpen(false);
       }
     };
 
@@ -81,12 +86,26 @@ export default function AhaniWebScanner() {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);
     };
-  }, [isMobileMenuOpen]);
+  }, [isMobileMenuOpen, isLangDropdownOpen]);
 
   useEffect(() => {
     checkUserSession();
     fetchLanguages();
-  }, []);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setCurrentUserEmail(session.user.email || null);
+        fetchUserCredits();
+      } else {
+        setCurrentUserEmail(null);
+        setCreditBalance(0);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [supabase]);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -199,7 +218,6 @@ export default function AhaniWebScanner() {
 
   const processDocument = async (imageFile: File, allowCitizenBilling: boolean) => {
     try {
-      // FIX: Grab the auth session token
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       
@@ -212,7 +230,6 @@ export default function AhaniWebScanner() {
 
       if (uploadError) throw uploadError;
 
-      // FIX: Attach the authorization header manually so the Edge Function sees the user
       const { data, error } = await supabase.functions.invoke('read-mail', {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
@@ -283,27 +300,9 @@ export default function AhaniWebScanner() {
   const handleOtpVerified = async () => {
     setShowOtpModal(false);
     setShowEmailCapture(false);
-    await checkUserSession();
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data } = await supabase
-        .from('citizen_wallets')
-        .select('monthly_free_scans_max, monthly_free_scans_used, purchased_credits')
-        .eq('citizen_id', user.id)
-        .single();
-        
-      const freeLeft = Math.max(0, (data?.monthly_free_scans_max || 0) - (data?.monthly_free_scans_used || 0));
-      const paid = data?.purchased_credits || 0;
-      const balance = freeLeft + paid;
-
-      if (balance > 0) {
-        if (currentImageFile.current) {
-          processDocument(currentImageFile.current, true);
-        }
-      } else {
-        router.push('/buy-credits');
-      }
+    
+    if (currentImageFile.current) {
+       setTimeout(() => processDocument(currentImageFile.current!, true), 500);
     }
   };
 
@@ -315,7 +314,6 @@ export default function AhaniWebScanner() {
     setCanShowFollowUp(false);
 
     try {
-      // FIX: Grab the auth session token for follow up questions too
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       
@@ -324,7 +322,6 @@ export default function AhaniWebScanner() {
 
       await supabase.storage.from('ephemeral_scans').upload(filePath, currentImageFile.current);
 
-      // FIX: Attach the authorization header for the follow up question
       const { data, error } = await supabase.functions.invoke('read-mail', {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
@@ -376,6 +373,9 @@ export default function AhaniWebScanner() {
     setIsPlaying(false);
     setCanShowFollowUp(true);
   };
+
+  // Filter languages for the custom dropdown
+  const filteredLanguages = languages.filter(l => l.toLowerCase().includes(langSearch.toLowerCase()));
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans relative">
@@ -477,18 +477,60 @@ export default function AhaniWebScanner() {
         
         {/* Language & Voice Selector */}
         <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col gap-2">
-          <div className="relative">
-            <select 
-              value={selectedLanguage}
-              onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="w-full appearance-none bg-purple-50 border border-purple-100 text-purple-900 font-bold text-lg rounded-xl px-4 py-3 outline-none"
+          
+          {/* Custom Searchable Language Dropdown */}
+          <div className="relative" ref={langDropdownRef}>
+            <button 
+              onClick={() => {
+                setIsLangDropdownOpen(!isLangDropdownOpen);
+                setLangSearch('');
+              }}
+              className="w-full flex justify-between items-center bg-purple-50 border border-purple-100 text-purple-900 font-bold text-lg rounded-xl px-4 py-3 outline-none"
             >
-              {languages.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-purple-900 pointer-events-none" />
+              {selectedLanguage}
+              <ChevronDown className={`transition-transform duration-200 ${isLangDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isLangDropdownOpen && (
+              <div className="absolute top-full left-0 w-full mt-2 bg-white border border-slate-200 shadow-xl rounded-xl z-50 overflow-hidden flex flex-col max-h-72">
+                <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 bg-slate-50">
+                  <Search size={16} className="text-slate-400" />
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="Search language..."
+                    value={langSearch}
+                    onChange={(e) => setLangSearch(e.target.value)}
+                    className="w-full bg-transparent outline-none text-slate-800 font-medium placeholder-slate-400"
+                  />
+                </div>
+                <div className="overflow-y-auto">
+                  {filteredLanguages.map(l => (
+                    <button
+                      key={l}
+                      onClick={() => {
+                        setSelectedLanguage(l);
+                        setIsLangDropdownOpen(false);
+                        setLangSearch('');
+                      }}
+                      className={`w-full text-left px-4 py-3 font-medium transition ${
+                        selectedLanguage === l ? 'bg-purple-100 text-purple-900' : 'text-slate-700 hover:bg-purple-50'
+                      }`}
+                    >
+                      {l}
+                    </button>
+                  ))}
+                  {filteredLanguages.length === 0 && (
+                    <div className="px-4 py-4 text-slate-500 text-center font-medium">
+                      No languages found
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
           
-          <div className="flex gap-2">
+          <div className="flex gap-2 mt-1">
             <button 
               onClick={() => { setIsVoiceMode(true); stopAudio(); }}
               className={`flex-1 py-3 rounded-xl font-bold flex justify-center items-center gap-2 transition ${isVoiceMode ? 'bg-purple-900 text-white' : 'bg-slate-100 text-slate-500'}`}
