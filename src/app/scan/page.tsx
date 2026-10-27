@@ -199,6 +199,10 @@ export default function AhaniWebScanner() {
 
   const processDocument = async (imageFile: File, allowCitizenBilling: boolean) => {
     try {
+      // FIX: Grab the auth session token
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
       const savedQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
       const filePath = `scans/${Date.now()}_scan.jpg`;
 
@@ -208,7 +212,11 @@ export default function AhaniWebScanner() {
 
       if (uploadError) throw uploadError;
 
+      // FIX: Attach the authorization header manually so the Edge Function sees the user
       const { data, error } = await supabase.functions.invoke('read-mail', {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
         body: {
           filePath,
           targetLanguage: selectedLanguage,
@@ -307,12 +315,20 @@ export default function AhaniWebScanner() {
     setCanShowFollowUp(false);
 
     try {
+      // FIX: Grab the auth session token for follow up questions too
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      
       const savedQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
       const filePath = `scans/${Date.now()}_followup.jpg`;
 
       await supabase.storage.from('ephemeral_scans').upload(filePath, currentImageFile.current);
 
+      // FIX: Attach the authorization header for the follow up question
       const { data, error } = await supabase.functions.invoke('read-mail', {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
         body: {
           filePath,
           targetLanguage: selectedLanguage,
