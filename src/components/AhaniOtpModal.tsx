@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, KeyboardEvent, ChangeEvent } from 'react';
 import { createClient } from '../utils/supabase/client';
 import { Loader2, X } from 'lucide-react';
+import { useRouter } from 'next/navigation'; // <-- Added router import
 
 interface AhaniOtpModalProps {
   email: string;
@@ -13,6 +14,7 @@ interface AhaniOtpModalProps {
 
 export default function AhaniOtpModal({ email, isOpen, onClose, onVerified }: AhaniOtpModalProps) {
   const supabase = createClient();
+  const router = useRouter(); // <-- Initialized router
   const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -86,6 +88,8 @@ export default function AhaniOtpModal({ email, isOpen, onClose, onVerified }: Ah
       if (error) throw error;
 
       if (data.session) {
+        // <-- THE FIX: Force Next.js to sync the new secure cookie with the server immediately
+        router.refresh(); 
         onVerified();
       }
     } catch (err) {
