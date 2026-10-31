@@ -258,12 +258,17 @@ export default function AhaniWebScanner() {
       if (isVoiceMode && data.audioBase64) {
         playAudio(data.audioBase64);
       }
-    } catch (error: any) {
-      const errorStr = error.toString().toLowerCase();
-      if (errorStr.includes('402') || errorStr.includes('funds') || errorStr.includes('insufficient')) {
+   } catch (error: any) {
+      console.error("Raw Supabase Error:", error);
+      
+      // Extract the hidden status code from Supabase's error context
+      const status = error?.context?.status || error?.status || 0;
+      const errorStr = (typeof error === 'object' ? JSON.stringify(error) : String(error)).toLowerCase();
+
+      if (status === 402 || errorStr.includes('402') || errorStr.includes('funds') || errorStr.includes('insufficient')) {
         setIsAgencyOffline(true);
         setShowNoMatchModal(true);
-      } else if (errorStr.includes('404') || errorStr.includes('no matching agency')) {
+      } else if (status === 404 || errorStr.includes('404') || errorStr.includes('no matching agency')) {
         setIsAgencyOffline(false);
         setShowNoMatchModal(true);
       } else {
