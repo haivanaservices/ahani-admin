@@ -206,9 +206,9 @@ export async function setupCampaignFingerprint(formData: FormData) {
           Look closely at the text, headers, legal phrasing, typography, and subject matter across all samples.
           
           You must return a strict JSON object with the following exact keys:
-          - "core_entities": Array of strings (Explicit names, department divisions, addresses, phone numbers, form codes).
-          - "linguistic_markers": Array of strings (Recurring statutory codes, mandatory clauses, legal jargon, specific boilerplate phrases, and tone).
-          - "contextual_spirit": A concise 2-3 sentence summary defining the exact domain, purpose, and types of mail this campaign issues.`
+- "core_entities": Array of strings (Explicit names, department divisions, addresses, phone numbers, form codes).
+- "linguistic_markers": Array of strings (Recurring statutory codes, mandatory clauses, legal jargon, specific boilerplate phrases, and tone).
+- "contextual_spirit": A concise 2-3 sentence summary defining the exact domain, purpose, and types of mail this campaign issues.`
         },
         {
           role: "user",
@@ -293,4 +293,48 @@ export async function resetCampaignFingerprint(formData: FormData) {
   }
 
   revalidatePath('/dashboard');
+}
+
+/// --- PASSWORD MANAGEMENT LOGIC ---
+export async function resetPassword(formData: FormData) {
+  const email = formData.get('email') as string;
+  
+  if (!email) {
+    redirect('/forgot-password?error=Email is required');
+  }
+
+  const supabase = await createClient();
+  
+  // Sends the password reset email and routes them to a new password setup page
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://www.ahai.ai'}/auth/callback?next=/update-password`,
+  });
+
+  if (error) {
+    redirect(`/forgot-password?error=${encodeURIComponent(error.message)}`);
+  }
+
+  redirect('/forgot-password?message=Success! Check your email for the password reset link.');
+}
+export async function updateUserPassword(formData: FormData) {
+  const password = formData.get('password') as string;
+  const confirmPassword = formData.get('confirmPassword') as string;
+
+  if (!password || password !== confirmPassword) {
+    redirect('/update-password?error=Passwords do not match');
+  }
+
+  const supabase = await createClient();
+  
+  // Updates the password for the currently authenticated user
+  const { error } = await supabase.auth.updateUser({
+    password: password
+  });
+
+  if (error) {
+    redirect(`/update-password?error=${encodeURIComponent(error.message)}`);
+  }
+
+  // Once saved, send them directly into the app
+  redirect('/dashboard');
 }

@@ -42,9 +42,6 @@ export default async function LoginPage({
           <p className="mt-2 text-center text-base text-slate-600 font-medium">
             Login for Enterprise Dashboard
           </p>
-          <p className="mt-1.5 text-center text-xs text-amber-600 font-medium">
-            * Mobile app users: Please sign in directly from your smartphone app.
-          </p>
         </div>
 
         <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
@@ -105,7 +102,7 @@ export default async function LoginPage({
                 </div>
 
                 <div className="text-sm">
-                  <Link href="#" className="font-medium text-slate-900 hover:text-slate-700">
+                  <Link href="/forgot-password" className="font-medium text-slate-900 hover:text-slate-700">
                     Forgot password?
                   </Link>
                 </div>

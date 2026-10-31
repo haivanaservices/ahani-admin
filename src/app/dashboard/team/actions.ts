@@ -49,7 +49,7 @@ export async function transferOwnership(formData: FormData) {
   const newOwnerId = formData.get('userId') as string;
   const supabase = await createServerClient();
   
-  // Call the secure database RPC you created in step 4
+  // Call the secure database RPC to handle the atomic transfer
   const { error } = await supabase.rpc('transfer_workspace_ownership', { 
     p_new_owner_id: newOwnerId 
   });
