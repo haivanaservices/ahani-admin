@@ -680,13 +680,17 @@ export default function AhaniWebScanner() {
               <div className="w-16 h-16 bg-purple-50 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CreditCard size={28} className="text-purple-600" />
               </div>
+              
+              {/* UPDATED: Ultra-simple Title */}
               <h2 className="text-2xl font-extrabold text-slate-900 mb-2">
-                {isAgencyOffline ? 'Agency Service Offline' : 'Agency Not Found'}
+                Translation Options
               </h2>
-              <p className="text-slate-500 mb-6 text-sm">
+              
+              {/* UPDATED: Ultra-simple descriptions */}
+              <p className="text-slate-500 mb-6 text-base font-medium">
                 {isAgencyOffline 
-                  ? 'This agency translation service is temporarily unavailable. Pay with your personal wallet to translate immediately.'
-                  : 'Scan an agency QR code to link this document, or pay with your personal credit card/wallet.'}
+                  ? 'The free office scanner is offline. Pay with your wallet to translate now.'
+                  : 'Scan the office QR code for a free translation, or pay with your own wallet.'}
               </p>
 
               {!showEmailCapture ? (
@@ -698,7 +702,7 @@ export default function AhaniWebScanner() {
                     }}
                     className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition"
                   >
-                    <QrCode size={20} /> Scan Agency QR Code
+                    <QrCode size={20} /> Scan Office QR Code
                   </button>
 
                   {currentUserEmail && (creditBalance ?? 0) > 0 ? (
@@ -709,7 +713,7 @@ export default function AhaniWebScanner() {
                       }}
                       className="w-full bg-purple-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-purple-800 transition"
                     >
-                      Pay with Personal Wallet (1 Credit)
+                      Pay with Wallet (1 Credit)
                     </button>
                   ) : (
                     <button 
