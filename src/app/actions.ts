@@ -43,7 +43,8 @@ export async function signIn(formData: FormData) {
   });
 
   if (error) {
-    return redirect('/login?error=Invalid credentials');
+    // This grabs the exact reason it failed (e.g., "Email not confirmed")
+    return redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
 
   redirect('/dashboard');
