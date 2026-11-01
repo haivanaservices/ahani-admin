@@ -8,11 +8,9 @@ import { deleteCampaign, resetCampaignFingerprint } from '../../actions';
 export default function CampaignActionMenu({ campaignId, campaignName, qrUrl }: { campaignId: string; campaignName: string; qrUrl: string }) {
   const [isOpen, setIsOpen] = useState(false);
 
-  // FORCE THE URL TO BE ABSOLUTE SO CAMERAS RECOGNIZE IT AS A WEBSITE
-  // If testing on a local network, replace 'https://www.ahani.ai' with your local IP like 'http://192.168.1.15:3000'
-  const absoluteUrl = qrUrl.startsWith('http') 
-    ? qrUrl 
-    : `https://www.ahani.ai${qrUrl.startsWith('/') ? qrUrl : `/scan/${qrUrl}`}`;
+  // FIX 1: Bulletproof URL construction. 
+  // We ignore the database string entirely and build the exact routing link using the known campaign ID.
+  const absoluteUrl = `https://www.ahani.ai/scan/${campaignId}`;
 
   const downloadPNG = () => {
     const canvas = document.getElementById(`qr-canvas-${campaignId}`) as HTMLCanvasElement;
@@ -47,11 +45,12 @@ export default function CampaignActionMenu({ campaignId, campaignName, qrUrl }: 
         <Settings size={16} /> Manage
       </button>
 
-      {/* Hidden staging area for standard-res QR code generation */}
-      <div className="hidden">
-        {/* FIX: Replaced qrUrl with absoluteUrl */}
-        <QRCodeCanvas id={`qr-canvas-${campaignId}`} value={absoluteUrl} size={256} level="M" marginSize={4} />
-        <QRCodeSVG id={`qr-svg-${campaignId}`} value={absoluteUrl} size={256} level="M" marginSize={4} />
+      {/* FIX 2: The Off-Screen Hack. 
+          Never use "hidden" (display: none) for canvas exports. 
+          We move it 9999px off the screen so the browser fully renders it perfectly for download. */}
+      <div className="absolute -left-[9999px] top-0 opacity-0 pointer-events-none">
+        <QRCodeCanvas id={`qr-canvas-${campaignId}`} value={absoluteUrl} size={512} level="M" marginSize={4} />
+        <QRCodeSVG id={`qr-svg-${campaignId}`} value={absoluteUrl} size={512} level="M" marginSize={4} />
       </div>
 
       {isOpen && (
