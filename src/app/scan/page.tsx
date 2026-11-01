@@ -7,6 +7,7 @@ import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, L
 import { useRouter } from 'next/navigation';
 import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
+import jsQR from 'jsqr';
 
 const FALLBACK_LANGUAGES = [
   'Afrikaans', 'Albanian', 'Amharic', 'Arabic', 'Armenian', 'Azerbaijani',
@@ -43,7 +44,6 @@ export default function AhaniWebScanner() {
   const [selectedLanguage, setSelectedLanguage] = useState('English');
   const [languages, setLanguages] = useState(FALLBACK_LANGUAGES);
   
-  // Custom Searchable Dropdown States
   const [isLangDropdownOpen, setIsLangDropdownOpen] = useState(false);
   const [langSearch, setLangSearch] = useState('');
   const langDropdownRef = useRef<HTMLDivElement>(null);
@@ -261,7 +261,6 @@ export default function AhaniWebScanner() {
    } catch (error: any) {
       console.error("Raw Supabase Error:", error);
       
-      // Extract the hidden status code from Supabase's error context
       const status = error?.context?.status || error?.status || 0;
       const errorStr = (typeof error === 'object' ? JSON.stringify(error) : String(error)).toLowerCase();
 
@@ -379,22 +378,18 @@ export default function AhaniWebScanner() {
     setCanShowFollowUp(true);
   };
 
-  // NEW: Sign Out function to clear ghosts
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.refresh();
   };
 
-  // Filter languages for the custom dropdown
   const filteredLanguages = languages.filter(l => l.toLowerCase().includes(langSearch.toLowerCase()));
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans relative">
       
-      {/* App Bar - Fixed to Top */}
       <header ref={headerRef} className="fixed top-0 left-0 w-full bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center z-[100]">
         
-        {/* Clickable Logo & Title Redirecting Home */}
         <div 
           className="flex items-center gap-2 sm:gap-3 cursor-pointer hover:opacity-80 transition"
           onClick={() => router.push('/')}
@@ -410,7 +405,6 @@ export default function AhaniWebScanner() {
           </div>
         </div>
 
-        {/* Desktop Navigation (Hidden on Mobile) */}
         <div className="hidden sm:flex gap-2 items-center">
           <button 
             onClick={() => qrInputRef.current?.click()}
@@ -437,7 +431,6 @@ export default function AhaniWebScanner() {
           )}
         </div>
 
-        {/* Mobile Hamburger Button (Visible only on Mobile) */}
         <button 
           className="sm:hidden p-2 text-slate-700 hover:text-slate-900 focus:outline-none"
           onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
@@ -445,7 +438,6 @@ export default function AhaniWebScanner() {
           {isMobileMenuOpen ? <X size={26} /> : <Menu size={26} />}
         </button>
 
-        {/* Mobile Dropdown Menu */}
         {isMobileMenuOpen && (
           <div className="absolute top-full left-0 w-full bg-white border-b border-slate-200 shadow-xl p-4 flex flex-col gap-3 sm:hidden animate-in slide-in-from-top-2">
             {currentUserEmail && (
@@ -489,7 +481,7 @@ export default function AhaniWebScanner() {
         )}
       </header>
 
-      {/* Hidden QR Code Picker */}
+      {/* FIXED: Real QR Code Image Parsing & URL Extraction */}
       <input 
         type="file" 
         accept="image/*" 
@@ -497,18 +489,62 @@ export default function AhaniWebScanner() {
         ref={qrInputRef} 
         className="hidden" 
         onChange={async (e) => {
-          if (!e.target.files?.[0]) return;
-          alert('Agency QR scanned and linked to your session!');
+          const file = e.target.files?.[0];
+          if (!file) return;
+
+          setIsLoading(true);
+          setLoadingMessage('Scanning QR Code...');
+
+          try {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const img = new window.Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                if (!ctx) return;
+                
+                ctx.drawImage(img, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+
+                if (code) {
+                  let campaignId = code.data;
+                  
+                  // Safely parse the absolute URL and strip out just the campaign UUID
+                  if (campaignId.startsWith('http') || campaignId.includes('/scan/')) {
+                    try {
+                      const url = new URL(campaignId);
+                      const pathSegments = url.pathname.split('/').filter(Boolean);
+                      campaignId = pathSegments[pathSegments.length - 1]; 
+                    } catch (err) {
+                      console.error("Failed to parse URL:", err);
+                    }
+                  }
+                  
+                  router.push(`/scan/${campaignId}`);
+                } else {
+                  alert('No QR code found in the image. Please try again.');
+                }
+                setIsLoading(false);
+              };
+              img.src = event.target?.result as string;
+            };
+            reader.readAsDataURL(file);
+          } catch (err) {
+            console.error(err);
+            alert('Error scanning QR code.');
+            setIsLoading(false);
+          }
         }} 
       />
 
-      {/* Main Content */}
       <main className="flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full">
         
-        {/* Language & Voice Selector */}
         <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col gap-2">
           
-          {/* Custom Searchable Language Dropdown */}
           <div className="relative" ref={langDropdownRef}>
             <button 
               onClick={() => {
@@ -576,7 +612,6 @@ export default function AhaniWebScanner() {
           </div>
         </div>
 
-        {/* Translation Output Box */}
         <div className="flex-grow bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6 overflow-y-auto">
           {isLoading ? (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
@@ -608,7 +643,6 @@ export default function AhaniWebScanner() {
           )}
         </div>
 
-        {/* Follow-up Section */}
         {canShowFollowUp && !isLoading && (
           <div className="mb-6 flex flex-col gap-4">
             <div className="flex flex-col items-center gap-2">
@@ -640,7 +674,6 @@ export default function AhaniWebScanner() {
           </div>
         )}
 
-        {/* Main Capture Trigger */}
         {(!isLoading && !isAskingQuestion && !isPlaying) && (
           <>
             <input 
@@ -662,7 +695,6 @@ export default function AhaniWebScanner() {
         )}
       </main>
 
-      {/* No Match Dialog (QR vs. Credit Choice) */}
       {showNoMatchModal && (
         <div className="fixed inset-0 z-50 flex items-end bg-slate-900/40 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-2xl mx-auto rounded-3xl p-8 shadow-2xl relative">
@@ -681,12 +713,10 @@ export default function AhaniWebScanner() {
                 <CreditCard size={28} className="text-purple-600" />
               </div>
               
-              {/* UPDATED: Ultra-simple Title */}
               <h2 className="text-2xl font-extrabold text-slate-900 mb-2">
                 Translation Options
               </h2>
               
-              {/* UPDATED: Ultra-simple descriptions */}
               <p className="text-slate-500 mb-6 text-base font-medium">
                 {isAgencyOffline 
                   ? 'The free office scanner is offline. Pay with your wallet to translate now.'
@@ -764,7 +794,6 @@ export default function AhaniWebScanner() {
         </div>
       )}
 
-      {/* OTP Verification Modal */}
       <AhaniOtpModal 
         email={emailInput}
         isOpen={showOtpModal}
