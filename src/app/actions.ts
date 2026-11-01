@@ -307,7 +307,7 @@ export async function resetPassword(formData: FormData) {
   
   // Sends the password reset email and routes them to a new password setup page
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://www.ahai.ai'}/auth/callback?next=/update-password`,
+    redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://www.ahani.ai'}/auth/callback?next=/update-password`,
   });
 
   if (error) {
