@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, Suspense } from 'react';
-import { Building2, Mail, Lock, User, ShieldCheck, Zap, ShieldAlert, MapPin, Loader2, X } from 'lucide-react';
+import { Building2, Mail, Lock, User, ShieldCheck, Zap, ShieldAlert, MapPin, Loader2, X, Users, ArrowRight } from 'lucide-react';
 import { createAgencyAccount } from './actions';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { createClient } from '../../utils/supabase/client';
@@ -14,15 +14,19 @@ function SignupContent() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
+  // Discovery UI States
+  const [showDiscovery, setShowDiscovery] = useState(false);
+  const [existingAgencies, setExistingAgencies] = useState<any[]>([]);
+  const [formDataCache, setFormDataCache] = useState<FormData | null>(null);
+
   // OTP Modal States
   const [showOtpModal, setShowOtpModal] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
 
-  // FIX: Switched to standard form event to prevent automatic resetting
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault(); // Stops the browser from clearing the form
+    e.preventDefault(); 
     
     const formData = new FormData(e.currentTarget);
     
@@ -49,14 +53,33 @@ function SignupContent() {
       return;
     }
 
-    // 3. If it passes all checks, send it to the server action
+    // Cache the form data in case we need to show the Discovery UI
+    setFormDataCache(formData);
+
+    // 3. Send to server action
     try {
-      await createAgencyAccount(formData);
+      const result = await createAgencyAccount(formData);
       
-      // If we get here, the account was created and the 6-digit code was sent!
-      setRegisteredEmail(email);
-      setShowOtpModal(true);
-      setIsLoading(false);
+      if (result?.error) {
+        setError(result.error);
+        setIsLoading(false);
+        return;
+      }
+
+      // 4. Handle Workspace Discovery Trigger
+      if (result?.status === 'discovery_required') {
+        setExistingAgencies(result.agencies);
+        setShowDiscovery(true);
+        setIsLoading(false);
+        return;
+      }
+      
+      // 5. Success (No discovery needed, or bypassed)
+      if (result?.success) {
+        setRegisteredEmail(email);
+        setShowOtpModal(true);
+        setIsLoading(false);
+      }
       
     } catch (err: any) {
       if (err?.message === 'NEXT_REDIRECT' || err?.digest?.includes('NEXT_REDIRECT')) {
@@ -70,6 +93,35 @@ function SignupContent() {
       setError("Something went wrong processing your registration. Please try again.");
       setIsLoading(false);
     }
+  };
+
+  const handleDiscoveryChoice = async (joinAgencyId?: string) => {
+    if (!formDataCache) return;
+    setIsLoading(true);
+    setError('');
+    
+    // Inject the user's decision into the cached form data
+    if (joinAgencyId) {
+      formDataCache.set('joinAgencyId', joinAgencyId);
+    } else {
+      formDataCache.set('bypassDiscovery', 'true');
+    }
+
+    try {
+      const result = await createAgencyAccount(formDataCache);
+      
+      if (result?.success) {
+        setRegisteredEmail(formDataCache.get('email') as string);
+        setShowDiscovery(false);
+        setShowOtpModal(true);
+      } else if (result?.error) {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError("Something went wrong processing your request.");
+    }
+    
+    setIsLoading(false);
   };
 
   const handleVerifyOtp = async () => {
@@ -144,151 +196,198 @@ function SignupContent() {
         </p>
       </div>
 
-      {/* Right Side: The Registration Form */}
+      {/* Right Side: Dynamic Content Area */}
       <div className="md:w-7/12 flex items-center justify-center p-8">
         <div className="w-full max-w-md">
-          <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Register for an Agency Pilot</h2>
-          <p className="text-slate-500 mb-8">Please use an official organizational email (.gov, .org, etc).</p>
-
-          {/* FIX: Changed from action={handleSubmit} to onSubmit={handleSubmit} */}
-          <form onSubmit={handleSubmit} className="space-y-5">
-            
-            {/* The Unmissable Error Box */}
-            {error && !showOtpModal && (
-              <div className="p-4 mb-4 text-sm text-red-900 rounded-xl bg-red-100 border-2 border-red-200 flex items-start gap-3 shadow-sm">
-                <ShieldAlert className="shrink-0 text-red-600 mt-0.5" size={20} />
-                <div>
-                  <strong className="block font-bold text-red-800 mb-1">Registration Blocked</strong>
-                  {error}
-                </div>
-              </div>
-            )}
-
-            {/* The Success Box */}
-            {urlMessage && !error && !showOtpModal && (
-              <div className="p-4 mb-4 text-sm text-green-900 rounded-xl bg-green-50 border-2 border-green-200">
-                {urlMessage}
-              </div>
-            )}
-
-            {/* Agency Name */}
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Agency or Department Name</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Building2 size={18} />
-                </div>
-                <input 
-                  type="text" 
-                  name="agencyName"
-                  required
-                  placeholder="e.g. Alameda County Social Services" 
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
-                />
-              </div>
-            </div>
-
-            {/* Agency Address */}
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Agency Address</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <MapPin size={18} />
-                </div>
-                <input 
-                  type="text" 
-                  name="agencyAddress"
-                  required
-                  placeholder="123 Main St, Suite 100, City, State ZIP" 
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
-                />
-              </div>
-            </div>
-
-            {/* Full Name */}
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Your Full Name</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <User size={18} />
-                </div>
-                <input 
-                  type="text" 
-                  name="fullName"
-                  required
-                  placeholder="Jane Doe" 
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
-                />
-              </div>
-            </div>
-
-            {/* Work Email */}
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Work Email</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Mail size={18} />
-                </div>
-                <input 
-                  type="email" 
-                  name="email"
-                  required
-                  placeholder="director@agency.gov" 
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
-                />
-              </div>
-            </div>
-
-            {/* Password */}
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Secure Password</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
-                  <Lock size={18} />
-                </div>
-                <input 
-                  type="password" 
-                  name="password"
-                  required
-                  placeholder="••••••••" 
-                  className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
-                />
-              </div>
-            </div>
-
-            {/* Terms and Privacy Checkbox */}
-            <div className="flex items-start mt-2">
-              <div className="flex items-center h-5">
-                <input
-                  id="termsAccepted"
-                  name="termsAccepted"
-                  type="checkbox"
-                  className="w-4 h-4 text-blue-600 bg-white border-slate-300 rounded focus:ring-blue-600 focus:ring-2 cursor-pointer"
-                />
-              </div>
-              <div className="ml-3 text-sm">
-                <label htmlFor="termsAccepted" className="font-medium text-slate-700 cursor-pointer">
-                  I have read and agree to the{' '}
-                  <a href="/terms" target="_blank" className="text-blue-600 hover:underline">Terms of Service</a>
-                  {' '}and{' '}
-                  <a href="/privacy" target="_blank" className="text-blue-600 hover:underline">Privacy Policy</a>.
-                </label>
-              </div>
-            </div>
-
-            <button 
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition shadow-sm mt-4 disabled:bg-blue-400 flex items-center justify-center gap-2"
-            >
-              {isLoading ? <><Loader2 className="animate-spin" size={20} /> Provisioning...</> : "Complete Setup & Start Pilot"}
-            </button>
-
-          </form>
           
-          <p className="text-center text-sm text-slate-500 mt-6">
-            Already have an active deployment? <a href="/login" className="text-blue-600 font-bold hover:underline">Sign In</a>
-          </p>
+          {showDiscovery ? (
+            /* --- WORKSPACE DISCOVERY UI --- */
+            <div className="animate-in fade-in zoom-in duration-300">
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center mb-6">
+                <Building2 size={24} />
+              </div>
+              <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Workspaces Found</h2>
+              <p className="text-slate-500 mb-6">
+                We found existing Ahani chapters for your organization's domain. Choose your role below.
+              </p>
+              
+              {/* Join Existing (Staff Role) */}
+              <div className="space-y-3 mb-6 max-h-60 overflow-y-auto pr-2">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Join as Staff Member</div>
+                {existingAgencies.map((agency: any) => (
+                  <div key={agency.id} className="p-4 border border-slate-200 rounded-xl bg-white hover:border-blue-300 transition flex justify-between items-center group">
+                    <div>
+                      <p className="font-bold text-slate-900">{agency.agency_name}</p>
+                      <p className="text-xs text-slate-500">{agency.address || 'Regional Office'}</p>
+                    </div>
+                    <button 
+                      onClick={() => handleDiscoveryChoice(agency.id)}
+                      disabled={isLoading}
+                      className="px-4 py-2 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg group-hover:bg-blue-600 group-hover:text-white transition flex items-center gap-1"
+                    >
+                      Join <ArrowRight size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="relative flex py-4 items-center">
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink-0 mx-4 text-slate-400 text-sm font-medium">Or</span>
+                <div className="flex-grow border-t border-slate-200"></div>
+              </div>
+
+              {/* Create New (Admin Role) */}
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 mt-4">Create New Chapter</div>
+              <button 
+                onClick={() => handleDiscoveryChoice()}
+                disabled={isLoading}
+                className="w-full border-2 border-slate-200 text-slate-700 font-bold py-4 rounded-xl hover:bg-slate-50 transition shadow-sm mt-2 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isLoading ? <Loader2 className="animate-spin" size={20} /> : <Users size={18} />}
+                Create Independent Chapter (Admin)
+              </button>
+              <p className="text-xs text-center text-slate-400 mt-3">
+                Creating a new chapter assigns you the Director/Admin role with isolated billing and campaigns.
+              </p>
+            </div>
+          ) : (
+            /* --- STANDARD REGISTRATION FORM --- */
+            <div className="animate-in fade-in duration-300">
+              <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Register for an Agency Pilot</h2>
+              <p className="text-slate-500 mb-8">Please use an official organizational email (.gov, .org, etc).</p>
+
+              <form onSubmit={handleSubmit} className="space-y-5">
+                
+                {error && !showOtpModal && (
+                  <div className="p-4 mb-4 text-sm text-red-900 rounded-xl bg-red-100 border-2 border-red-200 flex items-start gap-3 shadow-sm">
+                    <ShieldAlert className="shrink-0 text-red-600 mt-0.5" size={20} />
+                    <div>
+                      <strong className="block font-bold text-red-800 mb-1">Registration Blocked</strong>
+                      {error}
+                    </div>
+                  </div>
+                )}
+
+                {urlMessage && !error && !showOtpModal && (
+                  <div className="p-4 mb-4 text-sm text-green-900 rounded-xl bg-green-50 border-2 border-green-200">
+                    {urlMessage}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Agency or Department Name</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Building2 size={18} />
+                    </div>
+                    <input 
+                      type="text" 
+                      name="agencyName"
+                      required
+                      placeholder="e.g. Alameda County Social Services" 
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Agency Address</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <MapPin size={18} />
+                    </div>
+                    <input 
+                      type="text" 
+                      name="agencyAddress"
+                      required
+                      placeholder="123 Main St, Suite 100, City, State ZIP" 
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Your Full Name</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <User size={18} />
+                    </div>
+                    <input 
+                      type="text" 
+                      name="fullName"
+                      required
+                      placeholder="Jane Doe" 
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Work Email</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Mail size={18} />
+                    </div>
+                    <input 
+                      type="email" 
+                      name="email"
+                      required
+                      placeholder="director@agency.gov" 
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Secure Password</label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                      <Lock size={18} />
+                    </div>
+                    <input 
+                      type="password" 
+                      name="password"
+                      required
+                      placeholder="••••••••" 
+                      className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent transition-shadow"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-start mt-2">
+                  <div className="flex items-center h-5">
+                    <input
+                      id="termsAccepted"
+                      name="termsAccepted"
+                      type="checkbox"
+                      className="w-4 h-4 text-blue-600 bg-white border-slate-300 rounded focus:ring-blue-600 focus:ring-2 cursor-pointer"
+                    />
+                  </div>
+                  <div className="ml-3 text-sm">
+                    <label htmlFor="termsAccepted" className="font-medium text-slate-700 cursor-pointer">
+                      I have read and agree to the{' '}
+                      <a href="/terms" target="_blank" className="text-blue-600 hover:underline">Terms of Service</a>
+                      {' '}and{' '}
+                      <a href="/privacy" target="_blank" className="text-blue-600 hover:underline">Privacy Policy</a>.
+                    </label>
+                  </div>
+                </div>
+
+                <button 
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition shadow-sm mt-4 disabled:bg-blue-400 flex items-center justify-center gap-2"
+                >
+                  {isLoading ? <><Loader2 className="animate-spin" size={20} /> Provisioning...</> : "Complete Setup & Start Pilot"}
+                </button>
+              </form>
+              
+              <p className="text-center text-sm text-slate-500 mt-6">
+                Already have an active deployment? <a href="/login" className="text-blue-600 font-bold hover:underline">Sign In</a>
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
