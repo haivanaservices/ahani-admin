@@ -8,6 +8,12 @@ import { deleteCampaign, resetCampaignFingerprint } from '../../actions';
 export default function CampaignActionMenu({ campaignId, campaignName, qrUrl }: { campaignId: string; campaignName: string; qrUrl: string }) {
   const [isOpen, setIsOpen] = useState(false);
 
+  // FORCE THE URL TO BE ABSOLUTE SO CAMERAS RECOGNIZE IT AS A WEBSITE
+  // If testing on a local network, replace 'https://www.ahani.ai' with your local IP like 'http://192.168.1.15:3000'
+  const absoluteUrl = qrUrl.startsWith('http') 
+    ? qrUrl 
+    : `https://www.ahani.ai${qrUrl.startsWith('/') ? qrUrl : `/scan/${qrUrl}`}`;
+
   const downloadPNG = () => {
     const canvas = document.getElementById(`qr-canvas-${campaignId}`) as HTMLCanvasElement;
     if (canvas) {
@@ -34,7 +40,6 @@ export default function CampaignActionMenu({ campaignId, campaignName, qrUrl }: 
 
   return (
     <>
-      {/* 1. Explicit Action Button (Replaces the 3 dots) */}
       <button 
         onClick={() => setIsOpen(true)} 
         className="px-4 py-2 text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 hover:text-slate-900 transition rounded-lg flex items-center gap-2 border border-slate-200"
@@ -44,17 +49,15 @@ export default function CampaignActionMenu({ campaignId, campaignName, qrUrl }: 
 
       {/* Hidden staging area for standard-res QR code generation */}
       <div className="hidden">
-        {/* CHANGED FROM 1024 TO 256 BELOW, ADDED marginSize={4} */}
-        <QRCodeCanvas id={`qr-canvas-${campaignId}`} value={qrUrl} size={256} level="M" marginSize={4} />
-        <QRCodeSVG id={`qr-svg-${campaignId}`} value={qrUrl} size={256} level="M" marginSize={4} />
+        {/* FIX: Replaced qrUrl with absoluteUrl */}
+        <QRCodeCanvas id={`qr-canvas-${campaignId}`} value={absoluteUrl} size={256} level="M" marginSize={4} />
+        <QRCodeSVG id={`qr-svg-${campaignId}`} value={absoluteUrl} size={256} level="M" marginSize={4} />
       </div>
 
-      {/* 2. Pop-out Modal Overlay (Escapes the table boundary) */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200 animate-in fade-in zoom-in-95 duration-200">
             
-            {/* Modal Header */}
             <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start bg-slate-50">
               <div>
                 <h3 className="font-extrabold text-slate-900 text-lg">Manage Campaign</h3>
@@ -68,7 +71,6 @@ export default function CampaignActionMenu({ campaignId, campaignName, qrUrl }: 
               </button>
             </div>
 
-            {/* Modal Actions */}
             <div className="p-5 space-y-3">
               <button onClick={() => { downloadPNG(); setIsOpen(false); }} className="flex items-center w-full px-4 py-3 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition gap-4 shadow-sm">
                 <div className="bg-blue-100 text-blue-600 p-2.5 rounded-lg"><Download size={20} /></div>
