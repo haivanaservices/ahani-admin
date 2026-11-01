@@ -33,7 +33,18 @@ function SignupContent() {
     setIsLoading(true);
     setError('');
 
-    // 1. The Terms & Privacy Bouncer
+    // Strict Field Validation
+    const agencyAddress = formData.get('agencyAddress') as string;
+    const fullName = formData.get('fullName') as string;
+    const agencyName = formData.get('agencyName') as string;
+    
+    if (!agencyAddress || !fullName || !agencyName) {
+      setError("Please fill out all required fields, including your full name and agency address.");
+      setIsLoading(false);
+      return;
+    }
+
+    // The Terms & Privacy Bouncer
     const termsAccepted = formData.get('termsAccepted');
     if (!termsAccepted) {
       setError("You must read and accept the Terms of Service and Privacy Policy to initiate a pilot.");
@@ -44,7 +55,7 @@ function SignupContent() {
     const email = formData.get('email') as string;
     const domain = email.split('@')[1]?.toLowerCase();
     
-    // 2. The Pre-Flight Domain Bouncer
+    // The Pre-Flight Domain Bouncer
     const publicDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com', 'icloud.com'];
     
     if (domain && publicDomains.includes(domain)) {
@@ -53,10 +64,8 @@ function SignupContent() {
       return;
     }
 
-    // Cache the form data in case we need to show the Discovery UI
     setFormDataCache(formData);
 
-    // 3. Send to server action
     try {
       const result = await createAgencyAccount(formData);
       
@@ -66,7 +75,6 @@ function SignupContent() {
         return;
       }
 
-      // 4. Handle Workspace Discovery Trigger
       if (result?.status === 'discovery_required') {
         setExistingAgencies(result.agencies);
         setShowDiscovery(true);
@@ -74,7 +82,6 @@ function SignupContent() {
         return;
       }
       
-      // 5. Success (No discovery needed, or bypassed)
       if (result?.success) {
         setRegisteredEmail(email);
         setShowOtpModal(true);
@@ -100,7 +107,6 @@ function SignupContent() {
     setIsLoading(true);
     setError('');
     
-    // Inject the user's decision into the cached form data
     if (joinAgencyId) {
       formDataCache.set('joinAgencyId', joinAgencyId);
     } else {
@@ -212,18 +218,27 @@ function SignupContent() {
               </p>
               
               {/* Join Existing (Staff Role) */}
-              <div className="space-y-3 mb-6 max-h-60 overflow-y-auto pr-2">
+              <div className="space-y-3 mb-6 max-h-[350px] overflow-y-auto pr-2">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Join as Staff Member</div>
                 {existingAgencies.map((agency: any) => (
                   <div key={agency.id} className="p-4 border border-slate-200 rounded-xl bg-white hover:border-blue-300 transition flex justify-between items-center group">
-                    <div>
+                    <div className="flex-1 pr-4">
                       <p className="font-bold text-slate-900">{agency.agency_name}</p>
-                      <p className="text-xs text-slate-500">{agency.address || 'Regional Office'}</p>
+                      <div className="mt-1.5 space-y-1">
+                        <p className="text-xs text-slate-500 flex items-start gap-1.5">
+                          <MapPin size={14} className="shrink-0 mt-px text-slate-400" /> 
+                          <span>{agency.address || 'Address not provided'}</span>
+                        </p>
+                        <p className="text-xs text-slate-500 flex items-start gap-1.5">
+                          <User size={14} className="shrink-0 mt-px text-slate-400" /> 
+                          <span>Director: <span className="font-medium text-slate-700">{agency.director_name}</span></span>
+                        </p>
+                      </div>
                     </div>
                     <button 
                       onClick={() => handleDiscoveryChoice(agency.id)}
                       disabled={isLoading}
-                      className="px-4 py-2 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg group-hover:bg-blue-600 group-hover:text-white transition flex items-center gap-1"
+                      className="shrink-0 px-4 py-2 bg-slate-100 text-slate-700 text-sm font-bold rounded-lg group-hover:bg-blue-600 group-hover:text-white transition flex items-center gap-1"
                     >
                       Join <ArrowRight size={14} />
                     </button>

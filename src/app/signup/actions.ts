@@ -10,7 +10,6 @@ export async function createAgencyAccount(formData: FormData) {
   const agencyName = formData.get('agencyName') as string;
   const agencyAddress = formData.get('agencyAddress') as string;
   
-  // NEW: Catch the user's decision from the discovery UI
   const bypassDiscovery = formData.get('bypassDiscovery') === 'true';
   const joinAgencyId = formData.get('joinAgencyId') as string | null;
 
@@ -24,38 +23,60 @@ export async function createAgencyAccount(formData: FormData) {
     return { error: 'Ahani requires an official agency or corporate email to register.' };
   }
 
-  // 1. WORKSPACE DISCOVERY PRE-FLIGHT (Only runs if they haven't made a choice yet)
+  // 1. WORKSPACE DISCOVERY PRE-FLIGHT
   if (!bypassDiscovery && !joinAgencyId) {
-    // Use the Service Role Key to safely look past RLS for the domain check
     const supabaseAdmin = createAdminClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
+    // Relational Join: Grab the agency AND its associated profiles
     const { data: existingAgencies } = await supabaseAdmin
       .from('agencies')
-      .select('id, agency_name, address')
+      .select(`
+        id, 
+        agency_name, 
+        address,
+        profiles (
+          first_name,
+          last_name,
+          account_type
+        )
+      `)
       .eq('email_domain', domain);
 
     if (existingAgencies && existingAgencies.length > 0) {
-      // 🛑 PAUSE: Send the list back to the frontend to ask the user what they want to do
-      return { status: 'discovery_required', agencies: existingAgencies };
+      // Map the data to find the Admin (Director) for each agency
+      const formattedAgencies = existingAgencies.map((agency: any) => {
+        const admin = agency.profiles?.find((p: any) => p.account_type === 'admin');
+        const directorName = admin 
+          ? `${admin.first_name || ''} ${admin.last_name || ''}`.trim() 
+          : 'Unknown Director';
+
+        return {
+          id: agency.id,
+          agency_name: agency.agency_name,
+          address: agency.address,
+          director_name: directorName || 'Unknown Director'
+        };
+      });
+
+      return { status: 'discovery_required', agencies: formattedAgencies };
     }
   }
 
-  // 2. PROCEED WITH SIGNUP (They made a choice, or no domain existed)
+  // 2. PROCEED WITH SIGNUP
   const supabase = await createClient();
   
-  // Build the metadata payload. If they clicked "Join", inject the agency_id so the trigger catches it.
   const userMetadata: any = {
     full_name: fullName,
     email_domain: domain
   };
 
   if (joinAgencyId) {
-    userMetadata.agency_id = joinAgencyId; // Trigger: Scenario A (Employee/Member)
+    userMetadata.agency_id = joinAgencyId; 
   } else {
-    userMetadata.agency_name = agencyName; // Trigger: Scenario B (Solo Founder/New Chapter)
+    userMetadata.agency_name = agencyName; 
     userMetadata.agency_address = agencyAddress;
   }
 
