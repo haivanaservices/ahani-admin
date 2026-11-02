@@ -61,7 +61,6 @@ export default function AhaniWebScanner() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const headerRef = useRef<HTMLElement>(null);
 
-  const [followUpText, setFollowUpText] = useState('');
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -419,7 +418,6 @@ export default function AhaniWebScanner() {
       if (error) throw error;
 
       setResultText(prev => `${prev}\n\nQ: ${inputQuery}\nA: ${data.result}`);
-      setFollowUpText('');
       setAudioBase64(data.audioBase64);
       
       if (!isVoiceMode) setCanShowFollowUp(true);
@@ -488,43 +486,32 @@ export default function AhaniWebScanner() {
         </div>
       )}
 
-      {/* Floating Action Bar for Follow-up Questions */}
+      {/* Discrete Floating Action Bar for Speech (Polite Mic) */}
       {canShowFollowUp && !isLoading && (
-        <div className="fixed bottom-0 left-0 w-full bg-slate-50/90 backdrop-blur-xl border-t border-slate-200 px-4 pt-3 pb-8 sm:pb-6 z-40 animate-in slide-in-from-bottom-8">
-          <div className="max-w-2xl mx-auto flex flex-col gap-3">
+        <div className="fixed bottom-0 left-0 w-full bg-slate-50/95 backdrop-blur-xl border-t border-slate-200 px-4 pt-4 pb-8 sm:pb-6 z-40 animate-in slide-in-from-bottom-8">
+          <div className="max-w-2xl mx-auto flex flex-col items-center justify-center">
             
-            {/* Floating Mic Pill */}
-            <div className="flex justify-center -mt-10 mb-1">
-              <div className="bg-purple-900 text-white shadow-xl rounded-full pl-2 pr-6 py-2 flex items-center gap-3 ring-4 ring-slate-50/90">
-                {isAskingQuestion ? (
-                  <div className="p-3"><Loader2 className="animate-spin text-purple-200" size={24}/></div>
-                ) : (
+            {/* The Mic disables itself and fades back while the AI is speaking or thinking */}
+            <div className={`transition-all duration-300 flex flex-col items-center justify-center ${
+              (isPlaying || isAskingQuestion) ? 'opacity-40 pointer-events-none scale-95' : 'opacity-100 hover:scale-105'
+            }`}>
+              
+              {isAskingQuestion ? (
+                <div className="bg-purple-100 text-purple-900 rounded-full p-4 shadow-md mb-2">
+                  <Loader2 className="animate-spin" size={24}/>
+                </div>
+              ) : (
+                <div className="mb-2 bg-white rounded-full shadow-sm ring-1 ring-slate-200 p-1">
                   <WhisperMicButton onTranscriptionCompleted={askFollowUp} />
-                )}
-                <span className="font-extrabold text-lg tracking-tight">
-                  {isAskingQuestion ? 'Thinking...' : 'Ask anything'}
-                </span>
-              </div>
+                </div>
+              )}
+              
+              <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">
+                {isAskingQuestion ? 'Thinking...' : (isPlaying ? 'Speaking...' : 'Ask anything')}
+              </span>
+              
             </div>
 
-            {/* Text Input Fallback */}
-            <div className="flex gap-2 drop-shadow-sm">
-              <input 
-                type="text" 
-                value={followUpText}
-                onChange={(e) => setFollowUpText(e.target.value)}
-                placeholder="Or type a question..."
-                className="flex-grow bg-white border border-slate-200 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-purple-600 text-slate-800 placeholder-slate-400 font-medium"
-                onKeyDown={(e) => e.key === 'Enter' && askFollowUp(followUpText)}
-              />
-              <button 
-                onClick={() => askFollowUp(followUpText)}
-                disabled={isAskingQuestion || !followUpText.trim()}
-                className="bg-slate-800 text-white px-6 rounded-2xl font-bold disabled:opacity-50 hover:bg-slate-700 transition active:scale-95"
-              >
-                Send
-              </button>
-            </div>
           </div>
         </div>
       )}
@@ -621,8 +608,8 @@ export default function AhaniWebScanner() {
         )}
       </header>
 
-      {/* Added dynamic bottom padding (pb-48) so the floating action bar doesn't cover text */}
-      <main className={`flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full ${canShowFollowUp ? 'pb-48' : ''}`}>
+      {/* Reduced bottom padding to pb-32 since the discrete mic is much smaller */}
+      <main className={`flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full ${canShowFollowUp ? 'pb-32' : ''}`}>
         
         <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col gap-2">
           
