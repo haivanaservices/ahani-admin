@@ -162,7 +162,7 @@ export default function AhaniWebScanner() {
               }
             }
             
-            // FIX: Save to LocalStorage to grant the free scan instead of throwing a 404 by routing
+            // Save to LocalStorage to grant the free scan instead of throwing a 404 by routing
             const existingQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
             if (!existingQRs.includes(campaignId)) {
               existingQRs.push(campaignId);
@@ -662,16 +662,36 @@ export default function AhaniWebScanner() {
               {isVoiceMode && (
                 <div className="flex justify-end">
                   <button 
+                    disabled={isAskingQuestion || !audioBase64}
                     onClick={isPlaying ? stopAudio : () => audioBase64 && playAudio(audioBase64)}
-                    className={`px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 ${isPlaying ? 'bg-red-100 text-red-700' : 'bg-purple-100 text-purple-700'}`}
+                    className={`px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 transition ${
+                      isAskingQuestion || !audioBase64 
+                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                        : isPlaying 
+                          ? 'bg-red-100 text-red-700 hover:bg-red-200' 
+                          : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                    }`}
                   >
-                    {isPlaying ? <Square size={14} fill="currentColor"/> : <Play size={14} fill="currentColor"/>}
-                    {isPlaying ? 'Stop' : 'Listen'}
+                    {isAskingQuestion ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : isPlaying ? (
+                      <Square size={14} fill="currentColor"/>
+                    ) : (
+                      <Play size={14} fill="currentColor"/>
+                    )}
+                    {isAskingQuestion ? 'Thinking...' : (isPlaying ? 'Stop' : 'Listen')}
                   </button>
                 </div>
               )}
+              
               <div className="text-slate-800 text-lg leading-relaxed whitespace-pre-wrap">
                 {resultText}
+                
+                {isAskingQuestion && (
+                  <span className="flex items-center gap-2 text-purple-600 font-bold animate-pulse mt-4">
+                    <Loader2 size={16} className="animate-spin" /> Generating response...
+                  </span>
+                )}
               </div>
             </div>
           ) : (
