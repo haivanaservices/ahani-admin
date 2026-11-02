@@ -7,7 +7,7 @@ import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, L
 import { useRouter } from 'next/navigation';
 import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
-import jsQR from 'jsqr';
+import jsQR from 'jsqr'; // Ensure you have run: npm install jsqr
 
 const FALLBACK_LANGUAGES = [
   'Afrikaans', 'Albanian', 'Amharic', 'Arabic', 'Armenian', 'Azerbaijani',
@@ -481,7 +481,7 @@ export default function AhaniWebScanner() {
         )}
       </header>
 
-      {/* FIXED: Real QR Code Image Parsing & URL Extraction */}
+      {/* ROBUST QR SCANNER - Decodes massive images and parses absolute URLs */}
       <input 
         type="file" 
         accept="image/*" 
@@ -501,19 +501,35 @@ export default function AhaniWebScanner() {
               const img = new window.Image();
               img.onload = () => {
                 const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
+                
+                // Downscale large camera files so JSQR can actually read them
+                const MAX_SIZE = 800;
+                let width = img.width;
+                let height = img.height;
+
+                if (width > MAX_SIZE || height > MAX_SIZE) {
+                  if (width > height) {
+                    height = Math.round((height * MAX_SIZE) / width);
+                    width = MAX_SIZE;
+                  } else {
+                    width = Math.round((width * MAX_SIZE) / height);
+                    height = MAX_SIZE;
+                  }
+                }
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 if (!ctx) return;
                 
-                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(img, 0, 0, width, height);
                 const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 const code = jsQR(imageData.data, imageData.width, imageData.height);
 
                 if (code) {
                   let campaignId = code.data;
                   
-                  // Safely parse the absolute URL and strip out just the campaign UUID
+                  // Extract the UUID from the full website link
                   if (campaignId.startsWith('http') || campaignId.includes('/scan/')) {
                     try {
                       const url = new URL(campaignId);
@@ -526,7 +542,7 @@ export default function AhaniWebScanner() {
                   
                   router.push(`/scan/${campaignId}`);
                 } else {
-                  alert('No QR code found in the image. Please try again.');
+                  alert('No QR code found. Please ensure the QR code is clear and well-lit.');
                 }
                 setIsLoading(false);
               };
