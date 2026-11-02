@@ -325,11 +325,8 @@ export default function AhaniWebScanner() {
 
       setResultText(data.result || 'Could not read document.');
       setAudioBase64(data.audioBase64);
+      setCanShowFollowUp(true); // Enable UI, but do not force auto-play to avoid browser blocks
       
-      if (!isVoiceMode) setCanShowFollowUp(true);
-      if (isVoiceMode && data.audioBase64) {
-        playAudio(data.audioBase64);
-      }
    } catch (error: any) {
       console.error("Raw Supabase Error:", error);
       
@@ -417,10 +414,11 @@ export default function AhaniWebScanner() {
 
       setResultText(prev => `${prev}\n\nQ: ${inputQuery}\nA: ${data.result}`);
       setAudioBase64(data.audioBase64);
+      setCanShowFollowUp(true);
       
-      if (!isVoiceMode) setCanShowFollowUp(true);
-      if (isVoiceMode && data.audioBase64) playAudio(data.audioBase64);
-
+      if (isVoiceMode && data.audioBase64) {
+        playAudio(data.audioBase64); // Autoplay is safe here because user just interacted with mic
+      }
     } catch (error) {
       console.error("Follow up error:", error);
     } finally {
@@ -436,8 +434,13 @@ export default function AhaniWebScanner() {
       setCanShowFollowUp(true);
     };
     audioRef.current = snd;
-    snd.play();
     setIsPlaying(true);
+    
+    // Promise catch prevents UI freeze if autoplay is blocked
+    snd.play().catch((err) => {
+      console.warn("Autoplay prevented by browser. User must click Listen manually.", err);
+      setIsPlaying(false);
+    });
   };
 
   const stopAudio = () => {
@@ -489,7 +492,6 @@ export default function AhaniWebScanner() {
         <div className="fixed bottom-0 left-0 w-full bg-slate-50/95 backdrop-blur-xl border-t border-slate-200 px-4 pt-4 pb-8 sm:pb-6 z-40 animate-in slide-in-from-bottom-8">
           <div className="max-w-2xl mx-auto flex flex-col items-center justify-center">
             
-            {/* Keeping the Mic mounted at all times prevents browser permission spam. Visually fades/shrinks when disabled. */}
             <div className={`transition-all duration-300 flex flex-col items-center justify-center ${
               (isPlaying || isAskingQuestion) ? 'opacity-40 pointer-events-none scale-95' : 'opacity-100 hover:scale-105'
             }`}>
@@ -696,7 +698,6 @@ export default function AhaniWebScanner() {
             <div className="space-y-4">
               {isVoiceMode && (
                 <div className="flex justify-end sticky top-0 bg-white pb-2 border-b border-slate-50 z-10">
-                  {/* Strict State Machine governing the Listen Button */}
                   <button 
                     disabled={isListenDisabled}
                     onClick={isPlaying ? stopAudio : () => audioBase64 && playAudio(audioBase64)}
