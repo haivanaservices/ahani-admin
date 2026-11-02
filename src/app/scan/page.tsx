@@ -488,6 +488,47 @@ export default function AhaniWebScanner() {
         </div>
       )}
 
+      {/* Floating Action Bar for Follow-up Questions */}
+      {canShowFollowUp && !isLoading && (
+        <div className="fixed bottom-0 left-0 w-full bg-slate-50/90 backdrop-blur-xl border-t border-slate-200 px-4 pt-3 pb-8 sm:pb-6 z-40 animate-in slide-in-from-bottom-8">
+          <div className="max-w-2xl mx-auto flex flex-col gap-3">
+            
+            {/* Floating Mic Pill */}
+            <div className="flex justify-center -mt-10 mb-1">
+              <div className="bg-purple-900 text-white shadow-xl rounded-full pl-2 pr-6 py-2 flex items-center gap-3 ring-4 ring-slate-50/90">
+                {isAskingQuestion ? (
+                  <div className="p-3"><Loader2 className="animate-spin text-purple-200" size={24}/></div>
+                ) : (
+                  <WhisperMicButton onTranscriptionCompleted={askFollowUp} />
+                )}
+                <span className="font-extrabold text-lg tracking-tight">
+                  {isAskingQuestion ? 'Thinking...' : 'Ask anything'}
+                </span>
+              </div>
+            </div>
+
+            {/* Text Input Fallback */}
+            <div className="flex gap-2 drop-shadow-sm">
+              <input 
+                type="text" 
+                value={followUpText}
+                onChange={(e) => setFollowUpText(e.target.value)}
+                placeholder="Or type a question..."
+                className="flex-grow bg-white border border-slate-200 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-purple-600 text-slate-800 placeholder-slate-400 font-medium"
+                onKeyDown={(e) => e.key === 'Enter' && askFollowUp(followUpText)}
+              />
+              <button 
+                onClick={() => askFollowUp(followUpText)}
+                disabled={isAskingQuestion || !followUpText.trim()}
+                className="bg-slate-800 text-white px-6 rounded-2xl font-bold disabled:opacity-50 hover:bg-slate-700 transition active:scale-95"
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header ref={headerRef} className="fixed top-0 left-0 w-full bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center z-[100]">
         <div 
           className="flex items-center gap-2 sm:gap-3 cursor-pointer hover:opacity-80 transition"
@@ -580,7 +621,8 @@ export default function AhaniWebScanner() {
         )}
       </header>
 
-      <main className="flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full">
+      {/* Added dynamic bottom padding (pb-48) so the floating action bar doesn't cover text */}
+      <main className={`flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full ${canShowFollowUp ? 'pb-48' : ''}`}>
         
         <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col gap-2">
           
@@ -651,7 +693,7 @@ export default function AhaniWebScanner() {
           </div>
         </div>
 
-        <div className="flex-grow bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6 overflow-y-auto">
+        <div className="flex-grow bg-white rounded-2xl border border-slate-200 shadow-sm p-6 mb-6 overflow-y-auto relative">
           {isLoading ? (
             <div className="h-full flex flex-col items-center justify-center text-center space-y-4">
               <Loader2 className="animate-spin text-purple-600" size={40} />
@@ -660,7 +702,7 @@ export default function AhaniWebScanner() {
           ) : resultText ? (
             <div className="space-y-4">
               {isVoiceMode && (
-                <div className="flex justify-end">
+                <div className="flex justify-end sticky top-0 bg-white pb-2 border-b border-slate-50">
                   <button 
                     disabled={isAskingQuestion || !audioBase64}
                     onClick={isPlaying ? stopAudio : () => audioBase64 && playAudio(audioBase64)}
@@ -702,40 +744,8 @@ export default function AhaniWebScanner() {
           )}
         </div>
 
-        {canShowFollowUp && !isLoading && (
-          <div className="mb-6 flex flex-col gap-4">
-            <div className="flex flex-col items-center gap-2">
-              <p className="text-purple-900 font-bold text-lg">Tap to Talk, Tap to Send</p>
-              {isAskingQuestion ? (
-                <Loader2 className="animate-spin text-purple-900" size={32}/>
-              ) : (
-                <WhisperMicButton onTranscriptionCompleted={askFollowUp} />
-              )}
-            </div>
-
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                value={followUpText}
-                onChange={(e) => setFollowUpText(e.target.value)}
-                placeholder="Ask a question..."
-                className="flex-grow bg-white border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-purple-600"
-                onKeyDown={(e) => e.key === 'Enter' && askFollowUp(followUpText)}
-              />
-              <button 
-                onClick={() => askFollowUp(followUpText)}
-                disabled={isAskingQuestion || !followUpText.trim()}
-                className="bg-purple-900 text-white px-6 rounded-xl font-bold disabled:opacity-50"
-              >
-                Send
-              </button>
-            </div>
-          </div>
-        )}
-
-        {(!isLoading && !isAskingQuestion && !isPlaying) && (
+        {(!isLoading && !isAskingQuestion && !isPlaying && !canShowFollowUp) && (
           <>
-            {/* The Document capture remains a static photo because Supabase Vision handles it perfectly */}
             <input 
               type="file" 
               accept="image/*" 
