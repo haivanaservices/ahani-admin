@@ -7,7 +7,7 @@ import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, L
 import { useRouter } from 'next/navigation';
 import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
-import jsQR from 'jsqr';
+import { Html5Qrcode } from 'html5-qrcode';
 
 const FALLBACK_LANGUAGES = [
   'Afrikaans', 'Albanian', 'Amharic', 'Arabic', 'Armenian', 'Azerbaijani',
@@ -65,9 +65,12 @@ export default function AhaniWebScanner() {
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const qrInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentImageFile = useRef<File | null>(null);
+
+  // Live QR Scanner State
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
@@ -122,6 +125,69 @@ export default function AhaniWebScanner() {
     }
     return () => clearInterval(timer);
   }, [isLoading, selectedLanguage]);
+
+  // Clean up scanner on unmount
+  useEffect(() => {
+    return () => {
+      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+        html5QrCodeRef.current.stop().catch(console.error);
+      }
+    };
+  }, []);
+
+  const startLiveScanner = () => {
+    setShowQRScanner(true);
+    
+    // Slight delay to allow the modal DOM element to mount before binding the scanner
+    setTimeout(() => {
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      html5QrCodeRef.current = html5QrCode;
+
+      html5QrCode.start(
+        { facingMode: "environment" },
+        { fps: 15, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          // Success Callback
+          html5QrCode.stop().then(() => {
+            setShowQRScanner(false);
+            
+            let campaignId = decodedText;
+            if (campaignId.startsWith('http') || campaignId.includes('/scan/')) {
+              try {
+                const url = new URL(campaignId);
+                const pathSegments = url.pathname.split('/').filter(Boolean);
+                campaignId = pathSegments[pathSegments.length - 1]; 
+              } catch (err) {
+                console.error("Failed to parse URL:", err);
+              }
+            }
+            router.push(`/scan/${campaignId}`);
+          }).catch(console.error);
+        },
+        (errorMessage) => {
+          // Silent continuous read failures as it looks for the code
+        }
+      ).catch((err) => {
+        console.error("Failed to start scanner", err);
+        alert("Camera access denied or unavailable.");
+        setShowQRScanner(false);
+      });
+    }, 200);
+  };
+
+  const stopLiveScanner = () => {
+    if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+      html5QrCodeRef.current.stop().then(() => {
+        html5QrCodeRef.current?.clear();
+        setShowQRScanner(false);
+      }).catch((err) => {
+        console.error("Failed to stop scanner", err);
+        setShowQRScanner(false);
+      });
+    } else {
+      setShowQRScanner(false);
+    }
+  };
 
   const checkUserSession = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -388,8 +454,32 @@ export default function AhaniWebScanner() {
   return (
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans relative">
       
+      {/* Live Video Scanner Full-Screen Modal */}
+      {showQRScanner && (
+        <div className="fixed inset-0 z-[200] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center animate-in fade-in duration-200">
+          <div className="absolute top-6 right-6 z-[210]">
+            <button 
+              onClick={stopLiveScanner} 
+              className="bg-slate-800 text-white p-3 rounded-full hover:bg-slate-700 transition"
+            >
+              <X size={24} />
+            </button>
+          </div>
+          <div className="text-white font-extrabold text-xl mb-6 z-[210]">Scan Agency QR Code</div>
+          
+          {/* Target Box for the Video Feed */}
+          <div 
+            id="qr-reader" 
+            className="w-full max-w-sm rounded-3xl overflow-hidden bg-black border-4 border-slate-800 shadow-2xl relative"
+          ></div>
+          
+          <div className="text-slate-400 font-medium text-sm mt-8 text-center max-w-xs px-4 z-[210]">
+            Point your camera at the QR code. It will scan automatically.
+          </div>
+        </div>
+      )}
+
       <header ref={headerRef} className="fixed top-0 left-0 w-full bg-white px-4 sm:px-6 py-3 sm:py-4 border-b border-slate-200 flex justify-between items-center z-[100]">
-        
         <div 
           className="flex items-center gap-2 sm:gap-3 cursor-pointer hover:opacity-80 transition"
           onClick={() => router.push('/')}
@@ -407,7 +497,7 @@ export default function AhaniWebScanner() {
 
         <div className="hidden sm:flex gap-2 items-center">
           <button 
-            onClick={() => qrInputRef.current?.click()}
+            onClick={startLiveScanner}
             className="bg-purple-900 text-white px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5"
           >
             <QrCode size={16} /> Agency
@@ -448,7 +538,7 @@ export default function AhaniWebScanner() {
             <button 
               onClick={() => {
                 setIsMobileMenuOpen(false);
-                qrInputRef.current?.click();
+                startLiveScanner();
               }}
               className="w-full bg-slate-100 text-slate-700 py-3.5 rounded-xl text-base font-bold flex items-center justify-center gap-2"
             >
@@ -480,81 +570,6 @@ export default function AhaniWebScanner() {
           </div>
         )}
       </header>
-
-      {/* MULTI-PASS QR SCANNER: Built to fight screen glare and moire patterns */}
-      <input 
-        type="file" 
-        accept="image/*" 
-        capture="environment" 
-        ref={qrInputRef} 
-        className="hidden" 
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-
-          setIsLoading(true);
-          setLoadingMessage('Scanning QR Code...');
-
-          try {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-              const img = new window.Image();
-              img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d', { willReadFrequently: true });
-                if (!ctx) return;
-                
-                // PASS 1: Raw Original Size (Attempt Both Inversions)
-                canvas.width = img.width;
-                canvas.height = img.height;
-                ctx.drawImage(img, 0, 0);
-                let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
-
-                // PASS 2: Downscaled with Anti-Aliasing Disabled
-                if (!code) {
-                  const MAX_SIZE = 800;
-                  const scale = Math.min(MAX_SIZE / img.width, MAX_SIZE / img.height);
-                  
-                  if (scale < 1) {
-                    canvas.width = img.width * scale;
-                    canvas.height = img.height * scale;
-                    ctx.imageSmoothingEnabled = false; // Keep QR edges perfectly sharp
-                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-                    imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                    code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
-                  }
-                }
-
-                if (code) {
-                  let campaignId = code.data;
-                  
-                  if (campaignId.startsWith('http') || campaignId.includes('/scan/')) {
-                    try {
-                      const url = new URL(campaignId);
-                      const pathSegments = url.pathname.split('/').filter(Boolean);
-                      campaignId = pathSegments[pathSegments.length - 1]; 
-                    } catch (err) {
-                      console.error("Failed to parse URL:", err);
-                    }
-                  }
-                  
-                  router.push(`/scan/${campaignId}`);
-                } else {
-                  alert('No QR code found. If taking a photo of a screen, the glare may block it. Try printing it out or uploading the raw image file directly.');
-                }
-                setIsLoading(false);
-              };
-              img.src = event.target?.result as string;
-            };
-            reader.readAsDataURL(file);
-          } catch (err) {
-            console.error(err);
-            alert('Error scanning QR code.');
-            setIsLoading(false);
-          }
-        }} 
-      />
 
       <main className="flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full">
         
@@ -691,6 +706,7 @@ export default function AhaniWebScanner() {
 
         {(!isLoading && !isAskingQuestion && !isPlaying) && (
           <>
+            {/* The Document capture remains a static photo because Supabase Vision handles it perfectly */}
             <input 
               type="file" 
               accept="image/*" 
@@ -743,7 +759,7 @@ export default function AhaniWebScanner() {
                   <button 
                     onClick={() => {
                       setShowNoMatchModal(false);
-                      qrInputRef.current?.click();
+                      startLiveScanner();
                     }}
                     className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition"
                   >
