@@ -7,7 +7,7 @@ import { Camera, Volume2, AlignLeft, ChevronDown, X, CreditCard, Play, Square, L
 import { useRouter } from 'next/navigation';
 import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
-import jsQR from 'jsqr'; // Ensure you have run: npm install jsqr
+import jsQR from 'jsqr';
 
 const FALLBACK_LANGUAGES = [
   'Afrikaans', 'Albanian', 'Amharic', 'Arabic', 'Armenian', 'Azerbaijani',
@@ -481,7 +481,7 @@ export default function AhaniWebScanner() {
         )}
       </header>
 
-      {/* ROBUST QR SCANNER - Decodes massive images and parses absolute URLs */}
+      {/* MULTI-PASS QR SCANNER: Built to fight screen glare and moire patterns */}
       <input 
         type="file" 
         accept="image/*" 
@@ -501,35 +501,34 @@ export default function AhaniWebScanner() {
               const img = new window.Image();
               img.onload = () => {
                 const canvas = document.createElement('canvas');
-                
-                // Downscale large camera files so JSQR can actually read them
-                const MAX_SIZE = 800;
-                let width = img.width;
-                let height = img.height;
-
-                if (width > MAX_SIZE || height > MAX_SIZE) {
-                  if (width > height) {
-                    height = Math.round((height * MAX_SIZE) / width);
-                    width = MAX_SIZE;
-                  } else {
-                    width = Math.round((width * MAX_SIZE) / height);
-                    height = MAX_SIZE;
-                  }
-                }
-
-                canvas.width = width;
-                canvas.height = height;
                 const ctx = canvas.getContext('2d', { willReadFrequently: true });
                 if (!ctx) return;
                 
-                ctx.drawImage(img, 0, 0, width, height);
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                // PASS 1: Raw Original Size (Attempt Both Inversions)
+                canvas.width = img.width;
+                canvas.height = img.height;
+                ctx.drawImage(img, 0, 0);
+                let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                let code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+
+                // PASS 2: Downscaled with Anti-Aliasing Disabled
+                if (!code) {
+                  const MAX_SIZE = 800;
+                  const scale = Math.min(MAX_SIZE / img.width, MAX_SIZE / img.height);
+                  
+                  if (scale < 1) {
+                    canvas.width = img.width * scale;
+                    canvas.height = img.height * scale;
+                    ctx.imageSmoothingEnabled = false; // Keep QR edges perfectly sharp
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "attemptBoth" });
+                  }
+                }
 
                 if (code) {
                   let campaignId = code.data;
                   
-                  // Extract the UUID from the full website link
                   if (campaignId.startsWith('http') || campaignId.includes('/scan/')) {
                     try {
                       const url = new URL(campaignId);
@@ -542,7 +541,7 @@ export default function AhaniWebScanner() {
                   
                   router.push(`/scan/${campaignId}`);
                 } else {
-                  alert('No QR code found. Please ensure the QR code is clear and well-lit.');
+                  alert('No QR code found. If taking a photo of a screen, the glare may block it. Try printing it out or uploading the raw image file directly.');
                 }
                 setIsLoading(false);
               };
