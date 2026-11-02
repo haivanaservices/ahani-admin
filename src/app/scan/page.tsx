@@ -161,7 +161,16 @@ export default function AhaniWebScanner() {
                 console.error("Failed to parse URL:", err);
               }
             }
-            router.push(`/scan/${campaignId}`);
+            
+            // FIX: Save to LocalStorage to grant the free scan instead of throwing a 404 by routing
+            const existingQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
+            if (!existingQRs.includes(campaignId)) {
+              existingQRs.push(campaignId);
+              localStorage.setItem('ahani_saved_qrs', JSON.stringify(existingQRs));
+            }
+            
+            alert('Agency linked successfully! Your next scan is covered.');
+            
           }).catch(console.error);
         },
         (errorMessage) => {
