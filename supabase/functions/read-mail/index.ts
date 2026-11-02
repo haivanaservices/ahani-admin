@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3. ATTEMPT AGENCY MATCHING FIRST (Untouched Logic)
+    // 3. ATTEMPT AGENCY MATCHING FIRST
     if (saved_qr_codes && Array.isArray(saved_qr_codes) && saved_qr_codes.length > 0) {
       const clean_qr_codes = saved_qr_codes.map((code: string) => {
         const match = code.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
@@ -129,7 +129,7 @@ Respond strictly with a valid JSON object in this format:
       }
     }
 
-    // 4. THE BOUNCER: CONSUMER PAYMENT DEDUCTION (WATERFALL LOGIC)
+    // 4. THE BOUNCER: CONSUMER PAYMENT DEDUCTION
     if (!matchedAgencyId) {
       console.log("🛑 BOUNCER: No Agency match established.");
 
@@ -157,7 +157,6 @@ Respond strictly with a valid JSON object in this format:
       } else {
         console.log(`💳 Out of free scans. Checking purchased credits (Balance: ${paidCredits}).`);
         
-        // If they have no free scans, check if frontend explicitly authorized paid credits
         if (!use_personal_credits && !allow_citizen_billing) {
            console.log("🛑 BOUNCER: use_personal_credits is FALSE. Throwing 404 to prompt payment choice.");
            return new Response(JSON.stringify({ 
@@ -183,7 +182,6 @@ Respond strictly with a valid JSON object in this format:
 
       console.log(`💸 Attempting to deduct 1 '${deductionType}' credit from ${userId}...`);
       
-      // 4B. Execute Atomic Wallet Deduction RPC
       const { error: deductionError } = await supabase.rpc('process_consumer_scan_deduction', { 
         p_citizen_id: userId,
         p_deduction_type: deductionType
@@ -198,7 +196,7 @@ Respond strictly with a valid JSON object in this format:
       billedTo = deductionType === 'free' ? 'citizen_free' : 'citizen_paid';
     }
 
-    // 5. TRANSLATION & AUDIO ENGINE (Untouched)
+    // 5. TRANSLATION & AUDIO ENGINE
     console.log("🗣️ Starting Translation & Audio Engine...");
     const lang = targetLanguage || 'English';
     let systemPrompt = "";
@@ -207,22 +205,22 @@ Respond strictly with a valid JSON object in this format:
     if (question) {
       systemPrompt = `You are a strict, direct executive assistant. Answer the user's question based on the document provided.
 CRITICAL OPTICAL INSTRUCTIONS: Ignore Moiré patterns, wavy interference lines, RGB pixel grids, screen glare, or monitor bezels.
-CRITICAL INSTRUCTION: Do NOT include conversational filler like "The document says". Answer directly and concisely.
-Write your entire response natively in ${lang}. Write numbers and dates as full words. Ignore formatting dots, lines, and underscores.`;
+CRITICAL LANGUAGE INSTRUCTION: You MUST write your entire response natively in ${lang}. DO NOT output any English unless ${lang} is English. If the document is in English, translate your answer to ${lang}.
+CRITICAL FORMATTING INSTRUCTION: Do NOT include conversational filler like "The document says". Answer directly and concisely. Write numbers and dates as full words. Ignore formatting dots, lines, and underscores.`;
       userPrompt = `Please answer this question based on the document: "${question}"`;
     } 
     else {
-      systemPrompt = `You are a strict, highly efficient executive assistant for a non-native English speaker. Read the attached document and immediately tell the user what they need to know in ${lang}.
+      systemPrompt = `You are a strict, highly efficient executive assistant for a non-native English speaker. Read the attached document and extract the information.
 CRITICAL OPTICAL INSTRUCTIONS: Ignore Moiré patterns, wavy interference lines, RGB pixel grids, screen glare, or monitor bezels.
-CRITICAL FORMATTING INSTRUCTIONS: NO conversational filler. 
-Format your exact response in these 3 parts (translate labels into ${lang}):
-STATUS: [URGENT / ACTION NEEDED / NO ACTION NEEDED / JUNK MAIL]
-SUMMARY: [Exactly 1 concise sentence explaining what this is.]
-KEY DETAILS:
-- [Detail 1]
-- [Detail 2]`
-;
-      userPrompt = `Analyze this document.`;
+CRITICAL LANGUAGE INSTRUCTION: You MUST translate and output your entire response natively in ${lang}. DO NOT write in English unless ${lang} is English.
+
+Format your exact response in these 3 parts. You MUST translate these ALL-CAPS labels into ${lang}:
+[TRANSLATE 'STATUS' TO ${lang}]: [Translate to ${lang}: URGENT / ACTION NEEDED / NO ACTION NEEDED / JUNK MAIL]
+[TRANSLATE 'SUMMARY' TO ${lang}]: [Exactly 1 concise sentence explaining what this is, written in ${lang}.]
+[TRANSLATE 'KEY DETAILS' TO ${lang}]:
+- [Detail 1 in ${lang}]
+- [Detail 2 in ${lang}]`;
+      userPrompt = `Analyze this document and translate the results to ${lang}.`;
     }
 
     const chatCompletion = await openai.chat.completions.create({

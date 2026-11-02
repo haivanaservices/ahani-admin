@@ -62,6 +62,7 @@ export default function AhaniWebScanner() {
   const headerRef = useRef<HTMLElement>(null);
 
   const [isAskingQuestion, setIsAskingQuestion] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -137,7 +138,6 @@ export default function AhaniWebScanner() {
   const startLiveScanner = () => {
     setShowQRScanner(true);
     
-    // Slight delay to allow the modal DOM element to mount before binding the scanner
     setTimeout(() => {
       const html5QrCode = new Html5Qrcode("qr-reader");
       html5QrCodeRef.current = html5QrCode;
@@ -146,7 +146,6 @@ export default function AhaniWebScanner() {
         { facingMode: "environment" },
         { fps: 15, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
-          // Success Callback
           html5QrCode.stop().then(() => {
             setShowQRScanner(false);
             
@@ -161,7 +160,6 @@ export default function AhaniWebScanner() {
               }
             }
             
-            // Save to LocalStorage to grant the free scan instead of throwing a 404 by routing
             const existingQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
             if (!existingQRs.includes(campaignId)) {
               existingQRs.push(campaignId);
@@ -173,7 +171,7 @@ export default function AhaniWebScanner() {
           }).catch(console.error);
         },
         (errorMessage) => {
-          // Silent continuous read failures as it looks for the code
+          // Silent continuous read failures
         }
       ).catch((err) => {
         console.error("Failed to start scanner", err);
@@ -457,6 +455,7 @@ export default function AhaniWebScanner() {
   };
 
   const filteredLanguages = languages.filter(l => l.toLowerCase().includes(langSearch.toLowerCase()));
+  const isListenDisabled = isAskingQuestion || isLoading || isRecording || !audioBase64;
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col font-sans relative">
@@ -474,7 +473,6 @@ export default function AhaniWebScanner() {
           </div>
           <div className="text-white font-extrabold text-xl mb-6 z-[210]">Scan Agency QR Code</div>
           
-          {/* Target Box for the Video Feed */}
           <div 
             id="qr-reader" 
             className="w-full max-w-sm rounded-3xl overflow-hidden bg-black border-4 border-slate-800 shadow-2xl relative"
@@ -486,25 +484,34 @@ export default function AhaniWebScanner() {
         </div>
       )}
 
-      {/* Discrete Floating Action Bar for Speech (Polite Mic) */}
+      {/* Discrete Floating Action Bar for Speech */}
       {canShowFollowUp && !isLoading && (
         <div className="fixed bottom-0 left-0 w-full bg-slate-50/95 backdrop-blur-xl border-t border-slate-200 px-4 pt-4 pb-8 sm:pb-6 z-40 animate-in slide-in-from-bottom-8">
           <div className="max-w-2xl mx-auto flex flex-col items-center justify-center">
             
-            {/* The Mic disables itself and fades back while the AI is speaking or thinking */}
+            {/* Keeping the Mic mounted at all times prevents browser permission spam. Visually fades/shrinks when disabled. */}
             <div className={`transition-all duration-300 flex flex-col items-center justify-center ${
               (isPlaying || isAskingQuestion) ? 'opacity-40 pointer-events-none scale-95' : 'opacity-100 hover:scale-105'
             }`}>
               
-              {isAskingQuestion ? (
-                <div className="bg-purple-100 text-purple-900 rounded-full p-4 shadow-md mb-2">
-                  <Loader2 className="animate-spin" size={24}/>
+              <div className="relative flex items-center justify-center mb-2">
+                <div className={`transition-all duration-300 ${isAskingQuestion ? 'opacity-0 absolute pointer-events-none' : 'opacity-100 relative'} bg-white rounded-full shadow-sm ring-1 ring-slate-200 p-1`}>
+                  <WhisperMicButton 
+                    onTranscriptionCompleted={askFollowUp} 
+                    onRecordingStart={() => {
+                      setIsRecording(true);
+                      stopAudio(); 
+                    }}
+                    onRecordingStop={() => setIsRecording(false)}
+                  />
                 </div>
-              ) : (
-                <div className="mb-2 bg-white rounded-full shadow-sm ring-1 ring-slate-200 p-1">
-                  <WhisperMicButton onTranscriptionCompleted={askFollowUp} />
-                </div>
-              )}
+                
+                {isAskingQuestion && (
+                  <div className="bg-purple-100 text-purple-900 rounded-full p-4 shadow-md absolute">
+                    <Loader2 className="animate-spin" size={24}/>
+                  </div>
+                )}
+              </div>
               
               <span className="text-[11px] font-extrabold text-slate-500 uppercase tracking-widest text-center">
                 {isAskingQuestion ? 'Thinking...' : (isPlaying ? 'Speaking...' : 'Ask anything')}
@@ -608,7 +615,6 @@ export default function AhaniWebScanner() {
         )}
       </header>
 
-      {/* Reduced bottom padding to pb-32 since the discrete mic is much smaller */}
       <main className={`flex-grow pt-20 p-6 flex flex-col max-w-2xl mx-auto w-full ${canShowFollowUp ? 'pb-32' : ''}`}>
         
         <div className="bg-white p-2 rounded-2xl border border-slate-200 shadow-sm mb-6 flex flex-col gap-2">
@@ -689,12 +695,13 @@ export default function AhaniWebScanner() {
           ) : resultText ? (
             <div className="space-y-4">
               {isVoiceMode && (
-                <div className="flex justify-end sticky top-0 bg-white pb-2 border-b border-slate-50">
+                <div className="flex justify-end sticky top-0 bg-white pb-2 border-b border-slate-50 z-10">
+                  {/* Strict State Machine governing the Listen Button */}
                   <button 
-                    disabled={isAskingQuestion || !audioBase64}
+                    disabled={isListenDisabled}
                     onClick={isPlaying ? stopAudio : () => audioBase64 && playAudio(audioBase64)}
                     className={`px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 transition ${
-                      isAskingQuestion || !audioBase64 
+                      isListenDisabled 
                         ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
                         : isPlaying 
                           ? 'bg-red-100 text-red-700 hover:bg-red-200' 
@@ -703,12 +710,17 @@ export default function AhaniWebScanner() {
                   >
                     {isAskingQuestion ? (
                       <Loader2 size={14} className="animate-spin" />
+                    ) : isRecording ? (
+                      <span className="relative flex h-3 w-3 mr-1">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                      </span>
                     ) : isPlaying ? (
                       <Square size={14} fill="currentColor"/>
                     ) : (
                       <Play size={14} fill="currentColor"/>
                     )}
-                    {isAskingQuestion ? 'Thinking...' : (isPlaying ? 'Stop' : 'Listen')}
+                    {isAskingQuestion ? 'Thinking...' : isRecording ? 'Listening...' : isPlaying ? 'Stop' : 'Listen'}
                   </button>
                 </div>
               )}

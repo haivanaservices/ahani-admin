@@ -4,7 +4,17 @@ import { useState, useRef } from 'react';
 import { Mic, Square, Loader2 } from 'lucide-react';
 import { createClient } from '../utils/supabase/client'; 
 
-export default function WhisperMicButton({ onTranscriptionCompleted }: { onTranscriptionCompleted: (text: string) => void }) {
+interface WhisperMicButtonProps {
+  onTranscriptionCompleted: (text: string) => void;
+  onRecordingStart?: () => void;
+  onRecordingStop?: () => void;
+}
+
+export default function WhisperMicButton({ 
+  onTranscriptionCompleted,
+  onRecordingStart,
+  onRecordingStop
+}: WhisperMicButtonProps) {
   const supabase = createClient();
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -31,7 +41,9 @@ export default function WhisperMicButton({ onTranscriptionCompleted }: { onTrans
 
         mediaRecorder.onstop = async () => {
           setIsRecording(false);
+          onRecordingStop?.(); // Notify the parent UI (page.tsx) that recording physically stopped
           setIsProcessing(true);
+          
           // Kill the microphone red dot in the browser tab
           stream.getTracks().forEach(track => track.stop());
 
@@ -71,6 +83,7 @@ export default function WhisperMicButton({ onTranscriptionCompleted }: { onTrans
 
         mediaRecorder.start();
         setIsRecording(true);
+        onRecordingStart?.(); // Notify the parent UI (page.tsx) to disable the Listen button
       } catch (err) {
         console.error('Microphone access denied:', err);
         alert('Please allow microphone permissions to use voice follow-ups.');
