@@ -36,30 +36,36 @@ export default async function AnalyticsDashboard() {
 
   if (!profile || !profile.agency_id) redirect('/login');
 
-  // 2. Fetch the REAL Scan Logs for this Agency
+  // 2. Fetch the REAL Scan Logs for this Agency (Added 'category' to populate the heatmap)
   const { data: rawLogs } = await supabase
     .from('scan_logs')
     .select(`
-      id, created_at, language_code, document_classification, processing_time_ms, outcome_status, pii_retained,
+      id, created_at, language_code, document_classification, processing_time_ms, outcome_status, pii_retained, category,
       campaigns!inner ( name, agency_id )
     `)
     .eq('campaigns.agency_id', profile.agency_id)
     .order('created_at', { ascending: false });
 
-  const safeLogs = rawLogs || [];
+  // Force TypeScript to accept the joined columns by casting to any[]
+  const safeLogs: any[] = (rawLogs as any[]) || [];
 
-  // 3. Fetch the Confusion Matrix from our Postgres RPC Function
-  const { data: rawMatrix } = await supabase.rpc('get_confusion_matrix', { 
-    p_agency_id: profile.agency_id 
-  });
-
-  // Transform the flat RPC data into a 2D grouping by Campaign Name
+  // 3. Build Confusion Matrix Locally
   const campaignsMap: Record<string, Record<string, number>> = {};
   
-  if (rawMatrix) {
-    rawMatrix.forEach((row: any) => {
-      if (!campaignsMap[row.campaign_name]) {
-        campaignsMap[row.campaign_name] = {
+  safeLogs.forEach((log) => {
+    // Only count successfully delivered sessions towards the heatmap
+    if (log.outcome_status !== 'Delivered') return;
+    
+    const bucketId = log.category;
+    const isFrictionBucket = CONFUSION_BUCKETS.some(b => b.id === bucketId);
+    
+    // Safely extract campaign name regardless of how Supabase structures the join
+    const campaignData = Array.isArray(log.campaigns) ? log.campaigns[0] : log.campaigns;
+    const campName = campaignData?.name;
+
+    if (isFrictionBucket && campName) {
+      if (!campaignsMap[campName]) {
+        campaignsMap[campName] = {
            action_required: 0,
            deadline_urgency: 0,
            benefit_impact: 0,
@@ -67,16 +73,15 @@ export default async function AnalyticsDashboard() {
            contact_location: 0,
         };
       }
-      campaignsMap[row.campaign_name][row.bucket] = Number(row.event_count);
-    });
-  }
+      campaignsMap[campName][bucketId] += 1;
+    }
+  });
 
   const matrixRows = Object.entries(campaignsMap).map(([name, buckets]) => ({ name, ...buckets }));
 
   // 4. Calculate Top-Level Metrics
   const totalScans = safeLogs.length;
-  // FIX: Dashboard now correctly looks for "Delivered" instead of "Success"
-  const rejectedScans = safeLogs.filter(log => !log.outcome_status?.includes('Delivered')).length;
+  const rejectedScans = safeLogs.filter(log => log.outcome_status !== 'Delivered').length;
   const approvedScans = totalScans - rejectedScans;
 
   const languageCounts = safeLogs.reduce((acc, log) => {
@@ -85,39 +90,39 @@ export default async function AnalyticsDashboard() {
     return acc;
   }, {} as Record<string, number>);
 
-  const sortedLanguages = Object.entries(languageCounts).sort((a, b) => b[1] - a[1]);
+  // FIX: Inline type casting beats the strict Object.entries unknown error
+  const sortedLanguages = Object.entries(languageCounts).sort((a, b) => (b[1] as number) - (a[1] as number));
   const primaryLanguage = sortedLanguages.length > 0 ? sortedLanguages[0][0] : 'None';
   const primaryPercent = totalScans > 0 && sortedLanguages.length > 0 
-    ? Math.round((sortedLanguages[0][1] / totalScans) * 100) 
+    ? Math.round(((sortedLanguages[0][1] as number) / totalScans) * 100) 
     : 0;
 
   const topLanguages = sortedLanguages.slice(0, 5).map(([name, count]) => ({
     name,
-    percent: totalScans > 0 ? Math.round((count / totalScans) * 100) : 0,
-    count 
+    percent: totalScans > 0 ? Math.round(((count as number) / totalScans) * 100) : 0,
+    count: count as number 
   }));
 
-  // FIX: Normalized historical data to merge duplicate document bars
   const documentCounts = safeLogs.reduce((acc, log) => {
     let doc = log.document_classification || 'Uncategorized';
     
-    // Normalize historical tests: strip all spaces so they group perfectly
-    doc = doc.replace(/\s+/g, '');
-    
-    // Format nicely for the UI dashboard display
-    if (doc === 'VerifiedDocument') doc = 'Verified Document';
-    if (doc === 'UnrecognizedDocument') doc = 'Unrecognized Document';
+    if (doc === 'VerifiedDocument' || doc === 'Verified Document') {
+      doc = 'Verified Document';
+    } else if (doc === 'UnrecognizedDocument' || doc === 'Unrecognized Document') {
+      doc = 'Unrecognized Document';
+    }
     
     acc[doc] = (acc[doc] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   
+  // FIX: Inline type casting for document sorting
   const topDocuments = Object.entries(documentCounts)
-    .sort((a, b) => b[1] - a[1])
+    .sort((a, b) => (b[1] as number) - (a[1] as number))
     .slice(0, 3);
 
   const chartLanguageData = topLanguages.map(lang => ({ name: lang.name, value: lang.count }));
-  const chartDocumentData = topDocuments.map(([name, count]) => ({ name, value: count }));
+  const chartDocumentData = topDocuments.map(([name, count]) => ({ name, value: count as number }));
 
   return (
     <div className="max-w-6xl mx-auto p-8 space-y-8 pb-20">

@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3. ATTEMPT AGENCY MATCHING FIRST
+    // 3. ATTEMPT AGENCY MATCHING FIRST (With new Highest-Score Campaign Routing)
     if (saved_qr_codes && Array.isArray(saved_qr_codes) && saved_qr_codes.length > 0) {
       const clean_qr_codes = saved_qr_codes.map((code: string) => {
         const match = code.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
@@ -80,95 +80,120 @@ Deno.serve(async (req) => {
 
       console.log(`🔍 Fetching DNA Profiles from database...`);
 
-      const { data: campaigns, error: campaignError } = await supabase
+      // Find which agencies these QRs belong to first
+      const { data: initialCampaigns } = await supabase
         .from('campaigns')
-        .select('id, agency_id, fingerprint_rules')
+        .select('agency_id')
         .in('id', clean_qr_codes); 
 
-      if (campaigns && campaigns.length > 0) {
-        let profilesText = "";
-        campaigns.forEach(c => {
-           profilesText += `Agency ID: ${c.agency_id}\nProfile DNA: ${JSON.stringify(c.fingerprint_rules)}\n\n`;
-        });
+      if (initialCampaigns && initialCampaigns.length > 0) {
+        const agencyIds = [...new Set(initialCampaigns.map(c => c.agency_id))];
+        
+        // Fetch ALL campaigns for these agencies, ordered newest-first for the automatic tie-breaker
+        const { data: campaigns } = await supabase
+          .from('campaigns')
+          .select('id, agency_id, name, fingerprint_rules')
+          .in('agency_id', agencyIds)
+          .order('created_at', { ascending: false });
 
-        const matcherPrompt = `You are a forensic document auditor. Analyze the attached document and compare it against the following established Agency DNA Profiles:
+        if (campaigns && campaigns.length > 0) {
+          let profilesText = "";
+          campaigns.forEach(c => {
+             profilesText += `Campaign ID: ${c.id}\nAgency ID: ${c.agency_id}\nCampaign Name: ${c.name}\nProfile DNA: ${JSON.stringify(c.fingerprint_rules)}\n\n`;
+          });
+
+          const matcherPrompt = `You are a forensic document auditor. Analyze the attached document and compare it against the following established Agency DNA Profiles and their Campaigns:
 ${profilesText}
 CRITICAL OPTICAL INSTRUCTIONS:
 - You must completely ignore any Moiré patterns, wavy interference lines, RGB pixel grids, screen glare, or monitor bezels. 
 - Look strictly past the optical distortion to extract the underlying text of the document.
 
-If the document strongly aligns with the "Contextual Spirit" and contains even ONE or TWO definitive "Core Entities", it is a definitive match (Score 85-100). 
+Score the document against EVERY Campaign ID provided. If it aligns with the contextual spirit and contains definitive core entities, give it a high score (85-100).
 
 Respond strictly with a valid JSON object in this format:
 {
   "matched_agency_id": "the exact Agency ID if a match is found (score >= 75), or null if no match",
-  "matched_campaign_id": "the exact Campaign ID if a match is found, or null",
-  "confidence_score": <integer 0-100>,
+  "campaign_scores": { "exact_campaign_id": <integer 0-100> },
+  "confidence_score": <overall integer 0-100>,
   "reasoning": "One concise sentence explaining why it matched or failed"
 }`;
 
-        const matcherCompletion = await openai.chat.completions.create({
-          model: 'gpt-4o-mini', 
-          messages: [
-            { role: 'system', content: matcherPrompt },
-            { role: 'user', content: [{ type: 'image_url', image_url: { url: urlData.signedUrl, detail: 'high' } }] }
-          ],
-          max_tokens: 300,
-          response_format: { type: 'json_object' } 
-        });
+          const matcherCompletion = await openai.chat.completions.create({
+            model: 'gpt-4o-mini', 
+            messages: [
+              { role: 'system', content: matcherPrompt },
+              { role: 'user', content: [{ type: 'image_url', image_url: { url: urlData.signedUrl, detail: 'high' } }] }
+            ],
+            max_tokens: 300,
+            response_format: { type: 'json_object' } // Force JSON to prevent parsing crashes
+          });
 
-        try {
-          const aiResponseText = matcherCompletion.choices[0].message.content || "{}";
-          console.log(`🤖 AI Raw JSON Response:\n`, aiResponseText);
+          try {
+            const aiResponseText = matcherCompletion.choices[0].message.content || "{}";
+            console.log(`🤖 AI Raw JSON Response:\n`, aiResponseText);
 
-          const matchResult = JSON.parse(aiResponseText);
-          console.log(`📊 Parsed Result -> Agency: ${matchResult.matched_agency_id} | Score: ${matchResult.confidence_score} | Reason: ${matchResult.reasoning}`);
+            const matchResult = JSON.parse(aiResponseText);
+            console.log(`📊 Parsed Result -> Agency: ${matchResult.matched_agency_id} | Score: ${matchResult.confidence_score} | Reason: ${matchResult.reasoning}`);
 
-          if (matchResult.matched_agency_id && matchResult.confidence_score >= 75) {
-            console.log("✅ MATCH SUCCESS! Score meets threshold (>= 75). Checking Agency Quota...");
-            
-            const { data: subData } = await supabase
-              .from('annual_subscriptions')
-              .select('scans_used, max_scans')
-              .eq('agency_id', matchResult.matched_agency_id)
-              .eq('is_active', true)
-              .maybeSingle();
-
-            if (subData && subData.scans_used >= subData.max_scans) {
-              console.log("⚠️ Agency quota is depleted! Revoking match and falling back to Citizen Billing.");
-            } else {
-              console.log("🟢 Agency has available scans. Proceeding with agency billing.");
+            if (matchResult.matched_agency_id && matchResult.confidence_score >= 75) {
+              console.log("✅ MATCH SUCCESS! Score meets threshold (>= 75). Checking Agency Quota...");
               
-              matchedAgencyId = matchResult.matched_agency_id;
-              
-              // NEW FIX: Never rely on the AI to remember UUIDs. 
-              // We find the campaign ID programmatically from the database array we fetched earlier!
-              const matchedCampaignObj = campaigns.find(c => c.agency_id === matchedAgencyId);
-              targetCampaignId = matchedCampaignObj ? matchedCampaignObj.id : null;
-              
-              // FIX 2: Changed 'agency' to 'agency_fingerprint_match' to pass ENUM validation
-              billedTo = 'agency_fingerprint_match';
+              const { data: subData } = await supabase
+                .from('annual_subscriptions')
+                .select('scans_used, max_scans')
+                .eq('agency_id', matchResult.matched_agency_id)
+                .eq('is_active', true)
+                .maybeSingle();
 
-              await supabase.rpc('process_scan_billing', {
-                p_billed_to: 'agency_fingerprint_match',
-                p_agency_id: matchedAgencyId,
-                p_citizen_id: null
-              });
-              
-              if (targetCampaignId) {
-                 const matchedCampaign = campaigns.find(c => c.id === targetCampaignId);
-                 if (matchedCampaign) {
-                   await supabase.from('campaigns')
-                    .update({ total_scans: (matchedCampaign.total_scans || 0) + 1 })
-                    .eq('id', targetCampaignId);
-                 }
+              if (subData && subData.scans_used >= subData.max_scans) {
+                console.log("⚠️ Agency quota is depleted! Revoking match and falling back to Citizen Billing.");
+              } else {
+                console.log("🟢 Agency has available scans. Proceeding with agency billing.");
+                
+                matchedAgencyId = matchResult.matched_agency_id;
+                targetCampaignId = null;
+                
+                // Route to the highest scoring campaign (ordered newest-first automatically handles ties)
+                let highestScore = -1;
+                if (matchResult.campaign_scores) {
+                  for (const c of campaigns) {
+                    const score = matchResult.campaign_scores[c.id] || 0;
+                    if (score > highestScore && score >= 75) {
+                      highestScore = score;
+                      targetCampaignId = c.id;
+                    }
+                  }
+                }
+
+                // Fallback to their primary campaign if scoring failed but the agency matched
+                if (!targetCampaignId) {
+                  const matchedCampaignObj = campaigns.find(c => c.agency_id === matchedAgencyId);
+                  targetCampaignId = matchedCampaignObj ? matchedCampaignObj.id : null;
+                }
+                
+                billedTo = 'agency_fingerprint_match';
+
+                await supabase.rpc('process_scan_billing', {
+                  p_billed_to: 'agency_fingerprint_match',
+                  p_agency_id: matchedAgencyId,
+                  p_citizen_id: null
+                });
+                
+                if (targetCampaignId) {
+                   const matchedCampaign = campaigns.find(c => c.id === targetCampaignId);
+                   if (matchedCampaign) {
+                     await supabase.from('campaigns')
+                      .update({ total_scans: (matchedCampaign.total_scans || 0) + 1 })
+                      .eq('id', targetCampaignId);
+                   }
+                }
               }
+            } else {
+              console.log("❌ MATCH REJECTED: Score below 75 or missing matched_agency_id.");
             }
-          } else {
-            console.log("❌ MATCH REJECTED: Score below 75 or missing matched_agency_id.");
+          } catch (parseError) {
+            console.error("❌ Failed to parse AI Matcher JSON:", parseError);
           }
-        } catch (parseError) {
-          console.error("❌ Failed to parse AI Matcher JSON:", parseError);
         }
       }
     }
@@ -239,32 +264,51 @@ Respond strictly with a valid JSON object in this format:
       billedTo = deductionType === 'free' ? 'citizen_free' : 'citizen_paid';
     }
 
-    // 5. TRANSLATION & AUDIO ENGINE
+    // 5. TRANSLATION & AUDIO ENGINE (With Analytics Buckets)
     console.log("🗣️ Starting Translation & Audio Engine...");
     const lang = targetLanguage || 'English';
     let systemPrompt = "";
     let userPrompt = "";
 
+    const universalBuckets = `
+UNIVERSAL DOCUMENT BUCKETS (Pick ONE):
+1. "General Information & Rights"
+2. "Action Required / Forms"
+3. "Financial & Billing"
+4. "Status Decision & Eligibility"
+5. "Appointments & Scheduling"
+
+FRICTION HEATMAP BUCKETS (Pick ONE if answering a follow-up question, otherwise output null):
+"action_required", "deadline_urgency", "benefit_impact", "payment_fee", "contact_location"
+`;
+
     if (question) {
       systemPrompt = `You are a strict, direct executive assistant. Answer the user's question based on the document provided.
 CRITICAL OPTICAL INSTRUCTIONS: Ignore Moiré patterns, wavy interference lines, RGB pixel grids, screen glare, or monitor bezels.
-CRITICAL LANGUAGE INSTRUCTION: You MUST write your entire response natively in ${lang}. DO NOT output any English unless ${lang} is English. If the document is in English, translate your answer to ${lang}.
-CRITICAL FORMATTING INSTRUCTION: Do NOT include conversational filler like "The document says". Answer directly and concisely. Write numbers and dates as full words. Ignore formatting dots, lines, and underscores.`;
+CRITICAL LANGUAGE INSTRUCTION: You MUST write your translation natively in ${lang}. DO NOT output any English unless ${lang} is English. If the document is in English, translate your answer to ${lang}.
+CRITICAL FORMATTING INSTRUCTION: Do NOT include conversational filler like "The document says". Answer directly and concisely. Write numbers and dates as full words. Ignore formatting dots, lines, and underscores.
+${universalBuckets}
+You MUST respond strictly with a valid JSON object in this format:
+{
+  "translation": "Your direct answer natively in ${lang}",
+  "document_classification": "One of the 5 Universal Document Buckets",
+  "is_follow_up_question": true,
+  "friction_category": "One of the 5 Friction Heatmap Buckets"
+}`;
       userPrompt = `Please answer this question based on the document: "${question}"`;
     } 
     else {
       systemPrompt = `You are a strict, highly efficient executive assistant for a non-native English speaker. Read the attached document and extract the information.
 CRITICAL OPTICAL INSTRUCTIONS: Ignore Moiré patterns, wavy interference lines, RGB pixel grids, screen glare, or monitor bezels.
-CRITICAL LANGUAGE INSTRUCTION: You MUST translate and output your entire response natively in ${lang}. DO NOT write in English unless ${lang} is English.
-
-Format your exact response in these 3 parts. You MUST translate these ALL-CAPS labels into ${lang}:
-[TRANSLATE 'STATUS' TO ${lang}]: [Translate to ${lang}: URGENT / ACTION NEEDED / NO ACTION NEEDED / JUNK MAIL]
-[TRANSLATE 'SUMMARY' TO ${lang}]: [Exactly 1 concise sentence explaining what this is, written in ${lang}.]
-[TRANSLATE 'KEY DETAILS' TO ${lang}]:
-- [Detail 1 in 
-${lang}]
-- [Detail 2 in 
-${lang}]`;
+CRITICAL LANGUAGE INSTRUCTION: You MUST translate and output your entire translation natively in ${lang}. DO NOT write in English unless ${lang} is English.
+${universalBuckets}
+You MUST respond strictly with a valid JSON object in this format:
+{
+  "translation": "[TRANSLATE 'STATUS' TO ${lang}]: [URGENT / ACTION NEEDED / NO ACTION NEEDED / JUNK MAIL]\\n[TRANSLATE 'SUMMARY' TO ${lang}]: [Exactly 1 concise sentence]\\n[TRANSLATE 'KEY DETAILS' TO ${lang}]:\\n- [Detail 1]\\n- [Detail 2]",
+  "document_classification": "One of the 5 Universal Document Buckets",
+  "is_follow_up_question": false,
+  "friction_category": null
+}`;
       userPrompt = `Analyze this document and translate the results to ${lang}.`;
     }
 
@@ -281,10 +325,19 @@ ${lang}]`;
         }
       ],
       max_tokens: 500, 
+      response_format: { type: 'json_object' } // Force JSON to prevent text chunk parsing errors
     });
 
-    const rawText = chatCompletion.choices[0].message.content || "";
-    const cleanText = rawText.replace(/\.{2,}/g, '. ').replace(/_{2,}/g, ' ').replace(/-{2,}/g, ' ').replace(/…/g, '. ').trim();
+    const rawText = chatCompletion.choices[0].message.content || "{}";
+    let aiPayload: any = {};
+    try {
+      aiPayload = JSON.parse(rawText);
+    } catch (e) {
+      console.error("Failed to parse Translation JSON", e);
+    }
+
+    // Extract the translation string for the UI and Audio engine
+    const cleanText = (aiPayload.translation || "").replace(/\.{2,}/g, '. ').replace(/_{2,}/g, ' ').replace(/-{2,}/g, ' ').replace(/…/g, '. ').trim();
 
     let audioBase64 = null;
     if (generateAudio && cleanText) {
@@ -300,9 +353,15 @@ ${lang}]`;
 
    // 6. TELEMETRY & LOGGING (Run securely before returning)
     const processingTimeMs = Date.now() - executionStartTime;
-    const documentCategory = question ? 'Request for Action / Info' : 'General Information';
     
-    // NEW FIX: If campaign is null, grab the agency's default campaign so the dashboard doesn't orphan the scan
+    // Map the Friction Heatmap bucket to the category column, or fallback to General Information
+    const documentCategory = question && aiPayload.friction_category 
+      ? aiPayload.friction_category 
+      : 'General Information';
+      
+    // Apply the Universal Document Bucket for the Traffic Chart
+    const documentClassification = aiPayload.document_classification || 'UnrecognizedDocument';
+
     if (!targetCampaignId && matchedAgencyId) {
       const { data: fallbackCampaign } = await supabase
         .from('campaigns')
@@ -315,7 +374,6 @@ ${lang}]`;
 
     console.log(`📝 Writing to scan_logs... (${processingTimeMs}ms)`);
     
-    // Using 'await' ensures the database connection doesn't die before the insert finishes
     const { error: logError } = await supabase.from('scan_logs').insert({
       agency_id: matchedAgencyId,
       campaign_id: targetCampaignId,
@@ -326,14 +384,11 @@ ${lang}]`;
       language_selected: targetLanguage || 'English',
       language_code: targetLanguage || 'English', 
       
-      // DB constraint requires lowercase 'approved'
       status: 'approved',
-      
-      // FIX 1: React dashboard requires Capital D 'Delivered' (matches 'Pending')
       outcome_status: 'Delivered', 
       
-      // FIX 2: Now that targetCampaignId is guaranteed, this will always read VerifiedDocument
-      document_classification: targetCampaignId ? 'VerifiedDocument' : 'UnrecognizedDocument',
+      // AI driven taxonomy categories for Analytics
+      document_classification: documentClassification,
       pii_retained: false, 
       
       billed_to: billedTo,
