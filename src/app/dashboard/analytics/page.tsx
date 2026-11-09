@@ -36,7 +36,7 @@ export default async function AnalyticsDashboard() {
 
   if (!profile || !profile.agency_id) redirect('/login');
 
-  // 2. Fetch the REAL Scan Logs for this Agency (Added 'category' to populate the heatmap)
+  // 2. Fetch the REAL Scan Logs for this Agency
   const { data: rawLogs } = await supabase
     .from('scan_logs')
     .select(`
@@ -46,34 +46,34 @@ export default async function AnalyticsDashboard() {
     .eq('campaigns.agency_id', profile.agency_id)
     .order('created_at', { ascending: false });
 
-  // Force TypeScript to accept the joined columns by casting to any[]
   const safeLogs: any[] = (rawLogs as any[]) || [];
 
   // 3. Build Confusion Matrix Locally
   const campaignsMap: Record<string, Record<string, number>> = {};
   
   safeLogs.forEach((log) => {
-    // Only count successfully delivered sessions towards the heatmap
     if (log.outcome_status !== 'Delivered') return;
     
-    const bucketId = log.category;
-    const isFrictionBucket = CONFUSION_BUCKETS.some(b => b.id === bucketId);
-    
-    // Safely extract campaign name regardless of how Supabase structures the join
-    const campaignData = Array.isArray(log.campaigns) ? log.campaigns[0] : log.campaigns;
-    const campName = campaignData?.name;
+    // WORKAROUND: If this is a follow-up question, the friction bucket is stored in document_classification!
+    if (log.category === 'Request for Action / Info') {
+      const bucketId = log.document_classification;
+      const isFrictionBucket = CONFUSION_BUCKETS.some(b => b.id === bucketId);
+      
+      const campaignData = Array.isArray(log.campaigns) ? log.campaigns[0] : log.campaigns;
+      const campName = campaignData?.name;
 
-    if (isFrictionBucket && campName) {
-      if (!campaignsMap[campName]) {
-        campaignsMap[campName] = {
-           action_required: 0,
-           deadline_urgency: 0,
-           benefit_impact: 0,
-           payment_fee: 0,
-           contact_location: 0,
-        };
+      if (isFrictionBucket && campName) {
+        if (!campaignsMap[campName]) {
+          campaignsMap[campName] = {
+             action_required: 0,
+             deadline_urgency: 0,
+             benefit_impact: 0,
+             payment_fee: 0,
+             contact_location: 0,
+          };
+        }
+        campaignsMap[campName][bucketId] += 1;
       }
-      campaignsMap[campName][bucketId] += 1;
     }
   });
 
@@ -90,7 +90,6 @@ export default async function AnalyticsDashboard() {
     return acc;
   }, {} as Record<string, number>);
 
-  // FIX: Inline type casting beats the strict Object.entries unknown error
   const sortedLanguages = Object.entries(languageCounts).sort((a, b) => (b[1] as number) - (a[1] as number));
   const primaryLanguage = sortedLanguages.length > 0 ? sortedLanguages[0][0] : 'None';
   const primaryPercent = totalScans > 0 && sortedLanguages.length > 0 
@@ -104,19 +103,20 @@ export default async function AnalyticsDashboard() {
   }));
 
   const documentCounts = safeLogs.reduce((acc, log) => {
+    // WORKAROUND: Do not count follow-up questions in the "Highest Traffic Documents" chart!
+    if (log.category === 'Request for Action / Info') return acc;
+
     let doc = log.document_classification || 'Uncategorized';
     
-    if (doc === 'VerifiedDocument' || doc === 'Verified Document') {
-      doc = 'Verified Document';
-    } else if (doc === 'UnrecognizedDocument' || doc === 'Unrecognized Document') {
-      doc = 'Unrecognized Document';
-    }
+    // Normalize string spacing for the UI
+    if (doc === 'VerifiedDocument' || doc === 'Verified Document') doc = 'Verified Document';
+    else if (doc === 'UnrecognizedDocument' || doc === 'Unrecognized Document') doc = 'Unrecognized Document';
+    else if (doc === 'ActionRequired/Forms' || doc === 'ActionRequired/ Forms') doc = 'Action Required / Forms';
     
     acc[doc] = (acc[doc] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
   
-  // FIX: Inline type casting for document sorting
   const topDocuments = Object.entries(documentCounts)
     .sort((a, b) => (b[1] as number) - (a[1] as number))
     .slice(0, 3);

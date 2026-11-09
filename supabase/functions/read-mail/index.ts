@@ -355,12 +355,13 @@ You MUST respond strictly with a valid JSON object in this format:
     const processingTimeMs = Date.now() - executionStartTime;
     
     // Map the Friction Heatmap bucket to the category column, or fallback to General Information
-    const documentCategory = question && aiPayload.friction_category 
-      ? aiPayload.friction_category 
-      : 'General Information';
-      
-    // Apply the Universal Document Bucket for the Traffic Chart
-    const documentClassification = aiPayload.document_classification || 'UnrecognizedDocument';
+    // FIX: The database 'category' column has strict DB constraints. We MUST use these exact strings!
+    const documentCategory = question ? 'Request for Action / Info' : 'General Information';
+
+    // WORKAROUND: Since 'document_classification' is unrestricted free-text, we will store the friction bucket here for follow-up questions!
+    const documentClassification = question 
+      ? (aiPayload.friction_category || 'action_required')
+      : (aiPayload.document_classification || 'UnrecognizedDocument');
 
     if (!targetCampaignId && matchedAgencyId) {
       const { data: fallbackCampaign } = await supabase
