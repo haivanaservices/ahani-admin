@@ -452,6 +452,17 @@ export default function AhaniWebScanner() {
     setCanShowFollowUp(true);
   };
 
+  // --- NEW: Added handleResetSession to cleanly wipe the form for a new scan ---
+  const handleResetSession = () => {
+    stopAudio();
+    setResultText(null);
+    setAudioBase64(null);
+    setCanShowFollowUp(false);
+    setIsAskingQuestion(false);
+    currentImageFile.current = null;
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
   const handleSignOut = async () => {
     await supabase.auth.signOut();
     router.refresh();
@@ -696,35 +707,47 @@ export default function AhaniWebScanner() {
             </div>
           ) : resultText ? (
             <div className="space-y-4">
-              {isVoiceMode && (
-                <div className="flex justify-end sticky top-0 bg-white pb-2 border-b border-slate-50 z-10">
-                  <button 
-                    disabled={isListenDisabled}
-                    onClick={isPlaying ? stopAudio : () => audioBase64 && playAudio(audioBase64)}
-                    className={`px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 transition ${
-                      isListenDisabled 
-                        ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
-                        : isPlaying 
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200' 
-                          : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
-                    }`}
-                  >
-                    {isAskingQuestion ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : isRecording ? (
-                      <span className="relative flex h-3 w-3 mr-1">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
-                      </span>
-                    ) : isPlaying ? (
-                      <Square size={14} fill="currentColor"/>
-                    ) : (
-                      <Play size={14} fill="currentColor"/>
-                    )}
-                    {isAskingQuestion ? 'Thinking...' : isRecording ? 'Listening...' : isPlaying ? 'Stop' : 'Listen'}
-                  </button>
+              
+              {/* --- NEW: Updated sticky header to include the dismiss X button alongside audio controls --- */}
+              <div className="flex justify-between items-center sticky top-0 bg-white pb-2 border-b border-slate-50 z-10">
+                <div>
+                  {isVoiceMode && (
+                    <button 
+                      disabled={isListenDisabled}
+                      onClick={isPlaying ? stopAudio : () => audioBase64 && playAudio(audioBase64)}
+                      className={`px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 transition ${
+                        isListenDisabled 
+                          ? 'bg-slate-100 text-slate-400 cursor-not-allowed' 
+                          : isPlaying 
+                            ? 'bg-red-100 text-red-700 hover:bg-red-200' 
+                            : 'bg-purple-100 text-purple-700 hover:bg-purple-200'
+                      }`}
+                    >
+                      {isAskingQuestion ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : isRecording ? (
+                        <span className="relative flex h-3 w-3 mr-1">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                        </span>
+                      ) : isPlaying ? (
+                        <Square size={14} fill="currentColor"/>
+                      ) : (
+                        <Play size={14} fill="currentColor"/>
+                      )}
+                      {isAskingQuestion ? 'Thinking...' : isRecording ? 'Listening...' : isPlaying ? 'Stop' : 'Listen'}
+                    </button>
+                  )}
                 </div>
-              )}
+                
+                <button 
+                  onClick={handleResetSession}
+                  className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full transition"
+                  title="Close and scan a new document"
+                >
+                  <X size={24} />
+                </button>
+              </div>
               
               <div className="text-slate-800 text-lg leading-relaxed whitespace-pre-wrap">
                 {resultText}

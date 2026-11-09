@@ -21,9 +21,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
+    const executionStartTime = Date.now();
     console.log("=== STARTING READ-MAIL FUNCTION ===");
 
-    // Extract the new use_personal_credits flag from the React frontend
     const { 
       filePath, 
       targetLanguage, 
@@ -47,10 +47,12 @@ Deno.serve(async (req) => {
 
     if (urlError) throw urlError;
 
-    let billedTo = 'citizen';
+    // FIX 1: Changed 'citizen' to 'citizen_paid' to pass ENUM validation
+    let billedTo = 'citizen_paid'; 
     let matchedAgencyId = null;
+    let targetCampaignId = null;
     let userEmail = null;
-    let userId = null; // Added so we can query citizen_wallets
+    let userId = null;
 
     // 2. SECURELY IDENTIFY THE USER
     const authHeader = req.headers.get('authorization');
@@ -80,7 +82,7 @@ Deno.serve(async (req) => {
 
       const { data: campaigns, error: campaignError } = await supabase
         .from('campaigns')
-        .select('agency_id, fingerprint_rules')
+        .select('id, agency_id, fingerprint_rules')
         .in('id', clean_qr_codes); 
 
       if (campaigns && campaigns.length > 0) {
@@ -100,6 +102,7 @@ If the document strongly aligns with the "Contextual Spirit" and contains even O
 Respond strictly with a valid JSON object in this format:
 {
   "matched_agency_id": "the exact Agency ID if a match is found (score >= 75), or null if no match",
+  "matched_campaign_id": "the exact Campaign ID if a match is found, or null",
   "confidence_score": <integer 0-100>,
   "reasoning": "One concise sentence explaining why it matched or failed"
 }`;
@@ -116,15 +119,56 @@ Respond strictly with a valid JSON object in this format:
 
         try {
           const aiResponseText = matcherCompletion.choices[0].message.content || "{}";
+          console.log(`🤖 AI Raw JSON Response:\n`, aiResponseText);
+
           const matchResult = JSON.parse(aiResponseText);
+          console.log(`📊 Parsed Result -> Agency: ${matchResult.matched_agency_id} | Score: ${matchResult.confidence_score} | Reason: ${matchResult.reasoning}`);
 
           if (matchResult.matched_agency_id && matchResult.confidence_score >= 75) {
-            console.log("✅ MATCH SUCCESS! Routing to Agency Billing.");
-            matchedAgencyId = matchResult.matched_agency_id;
-            billedTo = 'agency';
+            console.log("✅ MATCH SUCCESS! Score meets threshold (>= 75). Checking Agency Quota...");
+            
+            const { data: subData } = await supabase
+              .from('annual_subscriptions')
+              .select('scans_used, max_scans')
+              .eq('agency_id', matchResult.matched_agency_id)
+              .eq('is_active', true)
+              .maybeSingle();
+
+            if (subData && subData.scans_used >= subData.max_scans) {
+              console.log("⚠️ Agency quota is depleted! Revoking match and falling back to Citizen Billing.");
+            } else {
+              console.log("🟢 Agency has available scans. Proceeding with agency billing.");
+              
+              matchedAgencyId = matchResult.matched_agency_id;
+              
+              // NEW FIX: Never rely on the AI to remember UUIDs. 
+              // We find the campaign ID programmatically from the database array we fetched earlier!
+              const matchedCampaignObj = campaigns.find(c => c.agency_id === matchedAgencyId);
+              targetCampaignId = matchedCampaignObj ? matchedCampaignObj.id : null;
+              
+              // FIX 2: Changed 'agency' to 'agency_fingerprint_match' to pass ENUM validation
+              billedTo = 'agency_fingerprint_match';
+
+              await supabase.rpc('process_scan_billing', {
+                p_billed_to: 'agency_fingerprint_match',
+                p_agency_id: matchedAgencyId,
+                p_citizen_id: null
+              });
+              
+              if (targetCampaignId) {
+                 const matchedCampaign = campaigns.find(c => c.id === targetCampaignId);
+                 if (matchedCampaign) {
+                   await supabase.from('campaigns')
+                    .update({ total_scans: (matchedCampaign.total_scans || 0) + 1 })
+                    .eq('id', targetCampaignId);
+                 }
+              }
+            }
+          } else {
+            console.log("❌ MATCH REJECTED: Score below 75 or missing matched_agency_id.");
           }
         } catch (parseError) {
-          console.error("❌ Failed to parse AI Matcher JSON");
+          console.error("❌ Failed to parse AI Matcher JSON:", parseError);
         }
       }
     }
@@ -138,7 +182,6 @@ Respond strictly with a valid JSON object in this format:
          return new Response(JSON.stringify({ error: 'Unauthorized. Please link your wallet.' }), { status: 401, headers: corsHeaders });
       }
 
-      // 4A. Fetch Wallet Data
       const { data: walletData } = await supabase
         .from('citizen_wallets')
         .select('monthly_free_scans_used, monthly_free_scans_max, purchased_credits')
@@ -218,8 +261,10 @@ Format your exact response in these 3 parts. You MUST translate these ALL-CAPS l
 [TRANSLATE 'STATUS' TO ${lang}]: [Translate to ${lang}: URGENT / ACTION NEEDED / NO ACTION NEEDED / JUNK MAIL]
 [TRANSLATE 'SUMMARY' TO ${lang}]: [Exactly 1 concise sentence explaining what this is, written in ${lang}.]
 [TRANSLATE 'KEY DETAILS' TO ${lang}]:
-- [Detail 1 in ${lang}]
-- [Detail 2 in ${lang}]`;
+- [Detail 1 in 
+${lang}]
+- [Detail 2 in 
+${lang}]`;
       userPrompt = `Analyze this document and translate the results to ${lang}.`;
     }
 
@@ -251,6 +296,55 @@ Format your exact response in these 3 parts. You MUST translate these ALL-CAPS l
       });
       const buffer = await mp3.arrayBuffer();
       audioBase64 = Buffer.from(buffer).toString('base64');
+    }
+
+   // 6. TELEMETRY & LOGGING (Run securely before returning)
+    const processingTimeMs = Date.now() - executionStartTime;
+    const documentCategory = question ? 'Request for Action / Info' : 'General Information';
+    
+    // NEW FIX: If campaign is null, grab the agency's default campaign so the dashboard doesn't orphan the scan
+    if (!targetCampaignId && matchedAgencyId) {
+      const { data: fallbackCampaign } = await supabase
+        .from('campaigns')
+        .select('id')
+        .eq('agency_id', matchedAgencyId)
+        .limit(1)
+        .maybeSingle();
+      if (fallbackCampaign) targetCampaignId = fallbackCampaign.id;
+    }
+
+    console.log(`📝 Writing to scan_logs... (${processingTimeMs}ms)`);
+    
+    // Using 'await' ensures the database connection doesn't die before the insert finishes
+    const { error: logError } = await supabase.from('scan_logs').insert({
+      agency_id: matchedAgencyId,
+      campaign_id: targetCampaignId,
+      citizen_id: userId,
+      category: documentCategory,
+      
+      target_language: targetLanguage || 'English',
+      language_selected: targetLanguage || 'English',
+      language_code: targetLanguage || 'English', 
+      
+      // DB constraint requires lowercase 'approved'
+      status: 'approved',
+      
+      // FIX 1: React dashboard requires Capital D 'Delivered' (matches 'Pending')
+      outcome_status: 'Delivered', 
+      
+      // FIX 2: Now that targetCampaignId is guaranteed, this will always read VerifiedDocument
+      document_classification: targetCampaignId ? 'VerifiedDocument' : 'UnrecognizedDocument',
+      pii_retained: false, 
+      
+      billed_to: billedTo,
+      processing_time_ms: processingTimeMs,
+      document_fingerprint_matched: matchedAgencyId ? 'yes' : 'no'
+    });
+
+    if (logError) {
+      console.error("❌ Failed to write to scan_logs:", logError);
+    } else {
+      console.log("✅ Successfully logged to scan_logs");
     }
 
     console.log(`✅ FUNCTION COMPLETE. Billed to: ${billedTo}`);

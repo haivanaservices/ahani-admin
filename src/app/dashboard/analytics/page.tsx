@@ -75,7 +75,8 @@ export default async function AnalyticsDashboard() {
 
   // 4. Calculate Top-Level Metrics
   const totalScans = safeLogs.length;
-  const rejectedScans = safeLogs.filter(log => !log.outcome_status?.includes('Success')).length;
+  // FIX: Dashboard now correctly looks for "Delivered" instead of "Success"
+  const rejectedScans = safeLogs.filter(log => !log.outcome_status?.includes('Delivered')).length;
   const approvedScans = totalScans - rejectedScans;
 
   const languageCounts = safeLogs.reduce((acc, log) => {
@@ -96,8 +97,17 @@ export default async function AnalyticsDashboard() {
     count 
   }));
 
+  // FIX: Normalized historical data to merge duplicate document bars
   const documentCounts = safeLogs.reduce((acc, log) => {
-    const doc = log.document_classification || 'Uncategorized';
+    let doc = log.document_classification || 'Uncategorized';
+    
+    // Normalize historical tests: strip all spaces so they group perfectly
+    doc = doc.replace(/\s+/g, '');
+    
+    // Format nicely for the UI dashboard display
+    if (doc === 'VerifiedDocument') doc = 'Verified Document';
+    if (doc === 'UnrecognizedDocument') doc = 'Unrecognized Document';
+    
     acc[doc] = (acc[doc] || 0) + 1;
     return acc;
   }, {} as Record<string, number>);
