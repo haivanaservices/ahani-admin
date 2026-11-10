@@ -1,4 +1,4 @@
-import { UserPlus, Shield, Users, ArrowRightLeft, Trash2, Info, Mail } from 'lucide-react';
+import { UserPlus, Shield, Users, ArrowRightLeft, Trash2, Mail } from 'lucide-react';
 import { createClient } from '../../../utils/supabase/server';
 import { redirect } from 'next/navigation';
 import { inviteAdmin, transferOwnership, removeAdmin } from './actions';
@@ -159,18 +159,6 @@ export default async function TeamAccess() {
           </table>
         </div>
       </div>
-
-      {/* Domain Security Banner */}
-      <div className="bg-green-50 border border-green-200 rounded-xl p-5 flex items-start gap-4 shadow-sm">
-        <Shield className="text-green-600 shrink-0 mt-0.5" size={20} />
-        <div>
-          <h3 className="text-sm font-bold text-green-900">Workspace Domain Secured</h3>
-          <p className="text-sm text-green-800 mt-1">
-            Your organization's email domain is safely locked to this workspace. If other employees attempt to register for a new Ahani account using your domain, their registration will be paused and they will be automatically routed to request an invite from you.
-          </p>
-        </div>
-      </div>
-
     </div>
   );
 }

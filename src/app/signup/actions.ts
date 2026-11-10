@@ -48,7 +48,7 @@ export async function createAgencyAccount(formData: FormData) {
     if (existingAgencies && existingAgencies.length > 0) {
       // Map the data to find the Admin (Director) for each agency
       const formattedAgencies = existingAgencies.map((agency: any) => {
-        const admin = agency.profiles?.find((p: any) => p.account_type === 'admin');
+        const admin = agency.profiles?.find((p: any) => p.account_type === 'admin' || p.role === 'owner');
         const directorName = admin 
           ? `${admin.first_name || ''} ${admin.last_name || ''}`.trim() 
           : 'Unknown Director';
@@ -73,11 +73,16 @@ export async function createAgencyAccount(formData: FormData) {
     email_domain: domain
   };
 
+  // EXPLICIT ROLE ASSIGNMENT
   if (joinAgencyId) {
     userMetadata.agency_id = joinAgencyId; 
+    userMetadata.role = 'standard'; // Joining an existing chapter (needs approval)
+    userMetadata.account_type = 'standard';
   } else {
     userMetadata.agency_name = agencyName; 
     userMetadata.agency_address = agencyAddress;
+    userMetadata.role = 'owner'; // Creating a new chapter gives them the keys
+    userMetadata.account_type = 'admin';
   }
 
   const { data: authData, error: authError } = await supabase.auth.signUp({

@@ -271,15 +271,19 @@ Respond strictly with a valid JSON object in this format:
     let userPrompt = "";
 
     const universalBuckets = `
-UNIVERSAL DOCUMENT BUCKETS (Pick ONE):
+UNIVERSAL DOCUMENT BUCKETS (Categorize the OVERALL DOCUMENT into ONE of these):
 1. "General Information & Rights"
 2. "Action Required / Forms"
 3. "Financial & Billing"
 4. "Status Decision & Eligibility"
 5. "Appointments & Scheduling"
 
-FRICTION HEATMAP BUCKETS (Pick ONE if answering a follow-up question, otherwise output null):
-"action_required", "deadline_urgency", "benefit_impact", "payment_fee", "contact_location"
+FRICTION HEATMAP BUCKETS (If the user asks a question, categorize the QUESTION'S INTENT into ONE of these exact strings):
+- "payment_fee" (Question asks about money, costs, fines, fees, owing, or paying)
+- "deadline_urgency" (Question asks about due dates, deadlines, timeframes, or "when")
+- "contact_location" (Question asks about addresses, phone numbers, offices, or "where")
+- "benefit_impact" (Question asks about eligibility, status, approvals, denials, or "what this means")
+- "action_required" (Question asks about what to do next, how to fill it out, or general instructions)
 `;
 
     if (question) {
