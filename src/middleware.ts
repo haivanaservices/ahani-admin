@@ -2,59 +2,51 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
 export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
+  let supabaseResponse = NextResponse.next({
+    request,
+  });
+
+  // 1. Support both publishable key and anon key conventions safely
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.error('Middleware Error: Supabase Environment Variables are missing.');
+    return supabaseResponse;
+  }
+
+  // Let /auth/callback exchange tokens directly without a competing middleware refresh
+  if (request.nextUrl.pathname.startsWith('/auth/callback')) {
+    return supabaseResponse;
+  }
+
+  const supabase = createServerClient(supabaseUrl, supabaseKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet: { name: string; value: string; options?: CookieOptions }[]) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        supabaseResponse = NextResponse.next({
+          request,
+        });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options)
+        );
+      },
     },
   });
 
-  // 1. Check if env variables exist to prevent immediate crashes
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    console.error("Middleware Error: Supabase Environment Variables are missing.");
-    return response;
-  }
-
-  const supabase = createServerClient(
-    supabaseUrl,
-    supabaseKey,
-    {
-      cookies: {
-        get(name: string) {
-          return request.cookies.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          request.cookies.set({ name, value, ...options });
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          });
-          response.cookies.set({ name, value, ...options });
-        },
-        remove(name: string, options: CookieOptions) {
-          request.cookies.set({ name, value: '', ...options });
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          });
-          response.cookies.set({ name, value: '', ...options });
-        },
-      },
-    }
-  );
-
-  // 2. Wrap the network call in a try/catch so a failure doesn't 500 the whole page
+  // 2. Refresh session safely without crashing the request on transient network errors
   try {
     await supabase.auth.getUser();
   } catch (error) {
-    console.error("Middleware Auth Error:", error);
+    console.error('Middleware Auth Error:', error);
   }
 
-  return response;
+  return supabaseResponse;
 }
 
 export const config = {

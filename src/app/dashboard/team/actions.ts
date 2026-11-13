@@ -4,106 +4,225 @@ import { createClient as createServerClient } from '../../../utils/supabase/serv
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 
-// 1. Invite a new Admin
-export async function inviteAdmin(formData: FormData) {
-  const email = formData.get('email') as string;
-  if (!email) throw new Error('Email is required');
+// Stateless Supabase Admin Client helper for privileged server operations
+function getAdminClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Missing Supabase server environment configuration.');
+  }
+
+  return createAdminClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
+
+// Shared helper to verify the caller is an authenticated Workspace Owner with a valid agency
+async function verifyWorkspaceOwner() {
   const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Unauthorized');
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
 
-  // Verify the person sending the invite is an Owner
-  const { data: profile } = await supabase
+  if (authError || !user) {
+    throw new Error('Unauthorized');
+  }
+
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('agency_id, account_type')
+    .select('id, agency_id, account_type')
     .eq('id', user.id)
     .single();
 
-  if (!profile || profile.account_type !== 'owner') {
-    throw new Error('Only the Workspace Owner can invite team members.');
+  if (profileError || !profile || !profile.agency_id || profile.account_type !== 'owner') {
+    throw new Error('Only the Workspace Owner can perform this action.');
   }
 
-  // Instantiate the Supabase Admin Client to bypass security rules and send the invite
-  const supabaseAdmin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! 
-  );
+  return { supabase, user, profile };
+}
 
-  // Send the invite and automatically attach them to the current agency
+// 1. Invite a new Admin
+export async function inviteAdmin(formData: FormData): Promise<void> {
+  const rawEmail = formData.get('email');
+  const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
+
+  if (!email) {
+    throw new Error('Email is required.');
+  }
+
+  const { user, profile } = await verifyWorkspaceOwner();
+
+  if (user.email?.toLowerCase() === email) {
+    throw new Error('You are already a member of this workspace.');
+  }
+
+  const supabaseAdmin = getAdminClient();
+
+  const redirectTo =
+    process.env.NODE_ENV === 'development'
+      ? 'http://localhost:3000/auth/callback'
+      : 'https://ai.ahani.app/auth/callback';
+
   const { error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-    data: { 
-      agency_id: profile.agency_id, 
-      account_type: 'admin' 
+    data: {
+      agency_id: profile.agency_id,
+      account_type: 'admin',
     },
-    // CRITICAL: Aligned to ai.ahani.app production callback route
-    redirectTo: process.env.NODE_ENV === 'development' 
-      ? 'http://localhost:3000/auth/callback' 
-      : 'https://ai.ahani.app/auth/callback'
+    redirectTo,
   });
 
-  if (error) throw new Error(error.message);
-  
-  // Refresh the page data
+  if (error) {
+    throw new Error(error.message);
+  }
+
   revalidatePath('/dashboard/team');
 }
 
 // 2. Transfer Ownership
-export async function transferOwnership(formData: FormData) {
-  const newOwnerId = formData.get('userId') as string;
-  const supabase = await createServerClient();
-  
+export async function transferOwnership(formData: FormData): Promise<void> {
+  const rawUserId = formData.get('userId');
+  const newOwnerId = typeof rawUserId === 'string' ? rawUserId.trim() : '';
+
+  if (!newOwnerId) {
+    throw new Error('Target user ID is required.');
+  }
+
+  const { supabase, user, profile } = await verifyWorkspaceOwner();
+
+  if (newOwnerId === user.id) {
+    throw new Error('You are already the Workspace Owner.');
+  }
+
+  // Verify the target is an active member of the same agency before transferring
+  const supabaseAdmin = getAdminClient();
+  const { data: targetProfile, error: targetError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, agency_id')
+    .eq('id', newOwnerId)
+    .eq('agency_id', profile.agency_id)
+    .single();
+
+  if (targetError || !targetProfile) {
+    throw new Error('Target user does not belong to your workspace.');
+  }
+
   // Call the secure database RPC to handle the atomic transfer
-  const { error } = await supabase.rpc('transfer_workspace_ownership', { 
-    p_new_owner_id: newOwnerId 
+  const { error } = await supabase.rpc('transfer_workspace_ownership', {
+    p_new_owner_id: newOwnerId,
   });
-  
-  if (error) throw new Error(error.message);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
   revalidatePath('/dashboard/team');
 }
 
 // 3. Remove an Admin
-export async function removeAdmin(formData: FormData) {
-  const adminId = formData.get('userId') as string;
-  const supabase = await createServerClient();
-  
-  // To remove them from the workspace, we simply nullify their agency_id and revert to individual
-  const { error } = await supabase
-    .from('profiles')
-    .update({ agency_id: null, account_type: 'individual' })
-    .eq('id', adminId);
-    
-  if (error) throw new Error(error.message);
-  revalidatePath('/dashboard/team');
-}
-// 4. Revoke a Pending Invite
-export async function revokeInvite(formData: FormData) {
-  const userId = formData.get('userId') as string;
-  if (!userId) throw new Error('User ID is required');
+export async function removeAdmin(formData: FormData): Promise<void> {
+  const rawUserId = formData.get('userId');
+  const adminId = typeof rawUserId === 'string' ? rawUserId.trim() : '';
 
-  const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Unauthorized');
-
-  // Verify the person revoking is an Owner
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('account_type')
-    .eq('id', user.id)
-    .single();
-
-  if (!profile || profile.account_type !== 'owner') {
-    throw new Error('Only the Workspace Owner can revoke invites.');
+  if (!adminId) {
+    throw new Error('Target user ID is required.');
   }
 
-  // Instantiate the Supabase Admin Client to delete from auth.users
-  const supabaseAdmin = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY! 
-  );
+  const { user, profile } = await verifyWorkspaceOwner();
+
+  if (adminId === user.id) {
+    throw new Error('Transfer ownership before removing yourself from the workspace.');
+  }
+
+  const supabaseAdmin = getAdminClient();
+
+  // Verify target belongs to this agency and is not an owner
+  const { data: targetProfile, error: fetchError } = await supabaseAdmin
+    .from('profiles')
+    .select('id, agency_id, account_type')
+    .eq('id', adminId)
+    .eq('agency_id', profile.agency_id)
+    .single();
+
+  if (fetchError || !targetProfile) {
+    throw new Error('Admin not found in your workspace.');
+  }
+
+  if (targetProfile.account_type === 'owner') {
+    throw new Error('Cannot remove the Workspace Owner.');
+  }
+
+  // Use Admin client scoped to agency_id so RLS WITH CHECK doesn't silently block nullifying agency_id
+  const { error } = await supabaseAdmin
+    .from('profiles')
+    .update({ agency_id: null, account_type: 'individual' })
+    .eq('id', adminId)
+    .eq('agency_id', profile.agency_id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  revalidatePath('/dashboard/team');
+}
+
+// 4. Revoke a Pending Invite
+export async function revokeInvite(formData: FormData): Promise<void> {
+  const rawUserId = formData.get('userId');
+  const userId = typeof rawUserId === 'string' ? rawUserId.trim() : '';
+
+  if (!userId) {
+    throw new Error('User ID is required.');
+  }
+
+  const { user, profile } = await verifyWorkspaceOwner();
+
+  if (userId === user.id) {
+    throw new Error('Cannot revoke your own account.');
+  }
+
+  const supabaseAdmin = getAdminClient();
+
+  // Verify the invited user actually belongs to this agency and is still pending
+  const { data: targetAuth, error: authLookupError } =
+    await supabaseAdmin.auth.admin.getUserById(userId);
+
+  if (authLookupError || !targetAuth?.user) {
+    throw new Error('Pending invite not found.');
+  }
+
+  const targetUser = targetAuth.user;
+  const metadataAgencyId = targetUser.user_metadata?.agency_id;
+
+  const { data: targetProfile } = await supabaseAdmin
+    .from('profiles')
+    .select('agency_id, account_type')
+    .eq('id', userId)
+    .maybeSingle();
+
+  const belongsToAgency =
+    targetProfile?.agency_id === profile.agency_id || metadataAgencyId === profile.agency_id;
+
+  if (!belongsToAgency) {
+    throw new Error('Unauthorized: Invite does not belong to your workspace.');
+  }
+
+  if (targetProfile?.account_type === 'owner') {
+    throw new Error('Cannot revoke a Workspace Owner.');
+  }
+
+  if (targetUser.last_sign_in_at || targetUser.email_confirmed_at) {
+    throw new Error('User has already accepted the invite. Use Remove instead.');
+  }
 
   const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(error.message);
+  }
 
   revalidatePath('/dashboard/team');
 }
