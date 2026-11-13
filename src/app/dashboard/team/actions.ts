@@ -35,7 +35,11 @@ export async function inviteAdmin(formData: FormData) {
     data: { 
       agency_id: profile.agency_id, 
       account_type: 'admin' 
-    }
+    },
+    // CRITICAL: Explicitly direct the invite token to your callback handler
+    redirectTo: process.env.NODE_ENV === 'development' 
+      ? 'http://localhost:3000/auth/callback' 
+      : 'https://www.ahani.ai/auth/callback'
   });
 
   if (error) throw new Error(error.message);
