@@ -1,7 +1,7 @@
-import { UserPlus, Shield, Users, ArrowRightLeft, Trash2, Mail } from 'lucide-react';
+import { UserPlus, Shield, Users, ArrowRightLeft, Trash2, Mail, XCircle } from 'lucide-react';
 import { createClient } from '../../../utils/supabase/server';
 import { redirect } from 'next/navigation';
-import { inviteAdmin, transferOwnership, removeAdmin } from './actions';
+import { inviteAdmin, transferOwnership, removeAdmin, revokeInvite } from './actions';
 
 export default async function TeamAccess() {
   const supabase = await createClient();
@@ -24,12 +24,12 @@ export default async function TeamAccess() {
 
   const isOwner = currentUserProfile.account_type === 'owner';
 
-  // 3. Fetch all team members in this agency
-  const { data: teamMembers } = await supabase
-    .from('profiles')
-    .select('id, account_type, created_at, email')
-    .eq('agency_id', currentUserProfile.agency_id)
-    .order('account_type', { ascending: false }); 
+  // 3. Fetch all team members (Active & Pending) using our secure RPC
+  const { data: teamMembers, error } = await supabase.rpc('get_agency_team_members');
+
+  if (error) {
+    console.error('Error fetching team members:', error.message);
+  }
 
   const members = teamMembers || [];
 
@@ -84,7 +84,8 @@ export default async function TeamAccess() {
               <tr className="border-b border-slate-200 text-sm text-slate-500 bg-white">
                 <th className="p-4 font-medium">User</th>
                 <th className="p-4 font-medium">Role</th>
-                <th className="p-4 font-medium">Joined</th>
+                <th className="p-4 font-medium">Status</th>
+                <th className="p-4 font-medium">Joined / Invited</th>
                 <th className="p-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
@@ -92,11 +93,12 @@ export default async function TeamAccess() {
               
               {members.map((member: any) => {
                 const isCurrentUser = member.id === currentUserProfile.id;
+                const isPending = member.status === 'Pending';
                 
                 return (
                   <tr key={member.id} className="hover:bg-slate-50 transition group">
                     <td className="p-4">
-                      <p className="font-bold text-slate-900">{member.email || 'Pending Invite'}</p>
+                      <p className="font-bold text-slate-900">{member.email}</p>
                       <p className="text-xs text-slate-500">ID: {member.id.split('-')[0]}...</p>
                     </td>
                     
@@ -111,6 +113,14 @@ export default async function TeamAccess() {
                         </span>
                       )}
                     </td>
+
+                    <td className="p-4">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                        isPending ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}>
+                        {member.status}
+                      </span>
+                    </td>
                     
                     <td className="p-4 text-sm text-slate-500">
                       {new Date(member.created_at).toLocaleDateString()}
@@ -120,31 +130,47 @@ export default async function TeamAccess() {
                       {isCurrentUser ? (
                         <span className="text-sm font-bold text-slate-400">Current User</span>
                       ) : isOwner ? (
-                        <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex justify-end gap-2">
                           
-                          {/* Transfer Ownership Form */}
-                          <form action={transferOwnership}>
-                            <input type="hidden" name="userId" value={member.id} />
-                            <button 
-                              type="submit"
-                              title="Transfer Ownership"
-                              className="text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:border-blue-500 hover:text-blue-700 px-3 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1"
-                            >
-                              <ArrowRightLeft size={14} /> Transfer
-                            </button>
-                          </form>
+                          {/* If Pending, allow revoking the invite */}
+                          {isPending ? (
+                            <form action={revokeInvite}>
+                              <input type="hidden" name="userId" value={member.id} />
+                              <button 
+                                type="submit"
+                                title="Revoke Pending Invite"
+                                className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1"
+                              >
+                                <XCircle size={14} /> Revoke
+                              </button>
+                            </form>
+                          ) : (
+                            <>
+                              {/* Transfer Ownership Form */}
+                              <form action={transferOwnership}>
+                                <input type="hidden" name="userId" value={member.id} />
+                                <button 
+                                  type="submit"
+                                  title="Transfer Ownership"
+                                  className="text-xs font-bold text-slate-700 bg-white border border-slate-200 hover:border-blue-500 hover:text-blue-700 px-3 py-1.5 rounded-lg transition shadow-sm flex items-center gap-1"
+                                >
+                                  <ArrowRightLeft size={14} /> Transfer
+                                </button>
+                              </form>
 
-                          {/* Remove Admin Form */}
-                          <form action={removeAdmin}>
-                            <input type="hidden" name="userId" value={member.id} />
-                            <button 
-                              type="submit"
-                              title="Remove Access"
-                              className="text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition flex items-center gap-1"
-                            >
-                              <Trash2 size={14} /> Remove
-                            </button>
-                          </form>
+                              {/* Remove Admin Form */}
+                              <form action={removeAdmin}>
+                                <input type="hidden" name="userId" value={member.id} />
+                                <button 
+                                  type="submit"
+                                  title="Remove Access"
+                                  className="text-xs font-bold text-red-600 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg transition flex items-center gap-1"
+                                >
+                                  <Trash2 size={14} /> Remove
+                                </button>
+                              </form>
+                            </>
+                          )}
 
                         </div>
                       ) : (

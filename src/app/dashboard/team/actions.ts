@@ -36,10 +36,10 @@ export async function inviteAdmin(formData: FormData) {
       agency_id: profile.agency_id, 
       account_type: 'admin' 
     },
-    // CRITICAL: Explicitly direct the invite token to your callback handler
+    // CRITICAL: Aligned to ai.ahani.app production callback route
     redirectTo: process.env.NODE_ENV === 'development' 
       ? 'http://localhost:3000/auth/callback' 
-      : 'https://www.ahani.ai/auth/callback'
+      : 'https://ai.ahani.app/auth/callback'
   });
 
   if (error) throw new Error(error.message);
@@ -74,5 +74,36 @@ export async function removeAdmin(formData: FormData) {
     .eq('id', adminId);
     
   if (error) throw new Error(error.message);
+  revalidatePath('/dashboard/team');
+}
+// 4. Revoke a Pending Invite
+export async function revokeInvite(formData: FormData) {
+  const userId = formData.get('userId') as string;
+  if (!userId) throw new Error('User ID is required');
+
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Unauthorized');
+
+  // Verify the person revoking is an Owner
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('account_type')
+    .eq('id', user.id)
+    .single();
+
+  if (!profile || profile.account_type !== 'owner') {
+    throw new Error('Only the Workspace Owner can revoke invites.');
+  }
+
+  // Instantiate the Supabase Admin Client to delete from auth.users
+  const supabaseAdmin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY! 
+  );
+
+  const { error } = await supabaseAdmin.auth.admin.deleteUser(userId);
+  if (error) throw new Error(error.message);
+
   revalidatePath('/dashboard/team');
 }
