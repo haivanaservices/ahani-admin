@@ -4,10 +4,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 interface DashboardNavTabsProps {
-  isOwner?: boolean;
+  isOwner: boolean;
 }
 
-export default function DashboardNavTabs({ isOwner = false }: DashboardNavTabsProps) {
+export default function DashboardNavTabs({ isOwner }: DashboardNavTabsProps) {
   const pathname = usePathname() || '';
 
   const tabs = [

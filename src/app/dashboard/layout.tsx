@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation';
 import { signOut } from '../actions';
 import DashboardNavTabs from './DashboardNavTabs';
 
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardLayout({
   children,
 }: {
@@ -19,19 +21,28 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('account_type, agency_id, is_verified_enterprise')
+    .select('*')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
-  // If explicitly marked unverified, route to the review holding page
+  if (profileError) {
+    console.error('DashboardLayout profile fetch error:', profileError.message);
+  }
+
   if (profile && profile.is_verified_enterprise === false) {
     redirect('/pending-review');
   }
 
-  const isEnterprise = profile?.account_type === 'enterprise';
-  const isOwner = profile?.account_type === 'owner';
+  const accountType = String(profile?.account_type || '').trim().toLowerCase();
+
+  // Kick removed admins ('individual' / no agency) back to login
+  if (profile && (!profile.agency_id || accountType === 'individual')) {
+    redirect('/login?error=No+active+workspace+assigned');
+  }
+
+  const isOwner = Boolean(profile?.agency_id) && accountType === 'owner';
 
   return (
     <div className="min-h-screen bg-[#FAFAFA] font-sans text-slate-900">
@@ -48,31 +59,23 @@ export default async function DashboardLayout({
             />
             <span className="text-xl font-bold tracking-tight">Ahani Admin</span>
           </Link>
-
-          {isEnterprise && (
-            <span className="ml-4 px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-bold uppercase tracking-wider rounded-md border border-slate-200">
-              Enterprise Workspace
-            </span>
-          )}
         </div>
 
         <div className="flex items-center gap-6">
-          {!isEnterprise && (
-            <Link
-              href="/dashboard/billing"
-              className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-green-700 transition flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                />
-              </svg>
-              Top Up Quota
-            </Link>
-          )}
+          <Link
+            href="/dashboard/billing"
+            className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow-sm hover:bg-green-700 transition flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+              />
+            </svg>
+            Top Up Quota
+          </Link>
 
           <div className="flex items-center gap-4 border-l border-slate-200 pl-6">
             <div className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-sm">
