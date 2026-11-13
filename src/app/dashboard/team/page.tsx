@@ -37,12 +37,14 @@ export default async function TeamAccess() {
     .eq('id', user.id)
     .single();
 
-  // Gracefully redirect to login if profile or agency data is missing
   if (!currentUserProfile || !currentUserProfile.agency_id) {
     redirect('/login');
   }
 
-  const isOwner = currentUserProfile.account_type === 'owner';
+  // Block Standard Admins from accessing /dashboard/team directly
+  if (currentUserProfile.account_type !== 'owner') {
+    redirect('/dashboard');
+  }
 
   // 3. Fetch all team members (Active & Pending) using our secure RPC
   const { data: teamMembers, error } = await supabase.rpc('get_agency_team_members');
@@ -94,30 +96,27 @@ export default async function TeamAccess() {
             </p>
           </div>
 
-          {/* Only show the invite form if they are the Owner */}
-          {isOwner && (
-            <form action={inviteAdmin} className="flex items-center gap-2 w-full md:w-auto">
-              <div className="relative flex-1 md:w-64">
-                <Mail
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-                  size={16}
-                />
-                <input
-                  type="email"
-                  name="email"
-                  required
-                  placeholder="Coworker's email..."
-                  className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                />
-              </div>
-              <button
-                type="submit"
-                className="bg-blue-600 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition shadow-sm shrink-0"
-              >
-                <UserPlus size={16} /> Invite
-              </button>
-            </form>
-          )}
+          <form action={inviteAdmin} className="flex items-center gap-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <Mail
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                size={16}
+              />
+              <input
+                type="email"
+                name="email"
+                required
+                placeholder="Coworker's email..."
+                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              className="bg-blue-600 text-white font-bold px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition shadow-sm shrink-0"
+            >
+              <UserPlus size={16} /> Invite
+            </button>
+          </form>
         </div>
 
         {/* Dynamic Data Table */}
@@ -190,7 +189,7 @@ export default async function TeamAccess() {
                       <td className="p-4 text-right">
                         {isCurrentUser ? (
                           <span className="text-sm font-bold text-slate-400">Current User</span>
-                        ) : isOwner ? (
+                        ) : (
                           <div className="flex justify-end gap-2">
                             {isPending ? (
                               <form action={revokeInvite}>
@@ -231,8 +230,6 @@ export default async function TeamAccess() {
                               </>
                             )}
                           </div>
-                        ) : (
-                          <span className="text-sm text-slate-400">-</span>
                         )}
                       </td>
                     </tr>

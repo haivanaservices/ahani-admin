@@ -3,29 +3,34 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-export default function DashboardNavTabs() {
-  const pathname = usePathname();
+interface DashboardNavTabsProps {
+  isOwner?: boolean;
+}
+
+export default function DashboardNavTabs({ isOwner = false }: DashboardNavTabsProps) {
+  const pathname = usePathname() || '';
 
   const tabs = [
     { name: 'Overview', href: '/dashboard' },
     { name: 'Analytics', href: '/dashboard/analytics' },
     { name: 'Billing & Tiers', href: '/dashboard/billing' },
-    { name: 'Team Access', href: '/dashboard/team' }, 
+    ...(isOwner ? [{ name: 'Team Access', href: '/dashboard/team' }] : []),
   ];
 
   return (
     <div className="bg-white border-b border-slate-200 px-6">
-      <div className="max-w-7xl mx-auto flex space-x-8">
+      <div className="max-w-7xl mx-auto flex space-x-8 overflow-x-auto">
         {tabs.map((tab) => {
-          const isActive = tab.href === '/dashboard' 
-            ? pathname === '/dashboard' 
-            : pathname.startsWith(tab.href);
+          const isActive =
+            tab.href === '/dashboard'
+              ? pathname === '/dashboard'
+              : pathname.startsWith(tab.href);
 
           return (
             <Link
               key={tab.name}
               href={tab.href}
-              className={`py-4 text-sm font-bold border-b-2 transition-colors ${
+              className={`py-4 text-sm font-bold border-b-2 whitespace-nowrap transition-colors ${
                 isActive
                   ? 'border-blue-600 text-blue-600'
                   : 'border-transparent text-slate-500 hover:text-slate-900 hover:border-slate-300'
