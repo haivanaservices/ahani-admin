@@ -23,9 +23,7 @@ function getSiteUrl() {
   if (process.env.NEXT_PUBLIC_SITE_URL) {
     return process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, '');
   }
-  return process.env.NODE_ENV === 'development'
-    ? 'http://localhost:3000'
-    : 'https://ai.ahani.app';
+  return 'https://www.ahani.ai';
 }
 
 export async function submitContactForm(formData: FormData) {
@@ -112,7 +110,7 @@ export async function createCampaign(formData: FormData) {
     throw new Error(error?.message || 'Failed to create campaign');
   }
 
-  // 2. Generate the Universal Deep Link for Flutter
+  // 2. Generate the campaign routing URL
   const deepLinkUrl = `https://ahani.app/scan/${campaign.id}`;
 
   // 3. Save the URL back to the campaign
@@ -123,7 +121,7 @@ export async function createCampaign(formData: FormData) {
     .eq('agency_id', profile.agency_id);
 
   if (updateError) {
-    console.error('Failed to save QR deep link URL:', updateError);
+    console.error('Failed to save QR routing URL:', updateError);
   }
 
   // 4. Fire the Resend email notification
@@ -156,7 +154,6 @@ export async function createCampaign(formData: FormData) {
     console.error('Failed to send notification email:', emailError);
   }
 
-  // 5. Return the explicit data object so TypeScript knows 'id' exists
   return {
     id: campaign.id,
     name: campaign.name,
@@ -205,7 +202,6 @@ export async function setupCampaignFingerprint(formData: FormData) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // 1. Catch storage errors
     const { error: uploadError } = await supabase.storage
       .from('agency_baselines')
       .upload(filePath, buffer, { contentType: file.type });
@@ -220,7 +216,6 @@ export async function setupCampaignFingerprint(formData: FormData) {
       uploadedUrls.push(publicUrl);
     }
 
-    // 2. Only attach valid images to OpenAI
     if (file.type.startsWith('image/')) {
       const base64Image = buffer.toString('base64');
       openaiContent.push({
@@ -231,7 +226,6 @@ export async function setupCampaignFingerprint(formData: FormData) {
     }
   }
 
-  // 3. Anti-hallucination shield
   if (validImagesCount === 0) {
     throw new Error(
       'You must upload at least one IMAGE file (JPG/PNG). PDFs cannot be visually analyzed by this endpoint.'
@@ -242,7 +236,6 @@ export async function setupCampaignFingerprint(formData: FormData) {
     `Successfully uploaded ${uploadedUrls.length} files. Contacting OpenAI with ${validImagesCount} images...`
   );
 
-  // 4. Contextual DNA extraction prompt
   let aiMatrix;
   try {
     const openai = getOpenAIClient();
@@ -276,7 +269,6 @@ export async function setupCampaignFingerprint(formData: FormData) {
     throw new Error(`OpenAI Processing Failed: ${openaiError.message}`);
   }
 
-  // 5. Catch database update errors (scoped to agency_id)
   const { error: dbError } = await supabase
     .from('campaigns')
     .update({

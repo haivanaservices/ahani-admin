@@ -12,7 +12,6 @@ export async function GET(request: Request) {
   try {
     const supabase = await createClient();
 
-    // FLOW 1: Token Hash (Cross-browser safe - No PKCE cookie needed)
     if (token_hash && type) {
       const { error } = await supabase.auth.verifyOtp({
         token_hash,
@@ -28,7 +27,6 @@ export async function GET(request: Request) {
       console.error('Token Hash error:', error.message);
     }
 
-    // FLOW 2: Legacy Code Exchange (Fallback)
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
 

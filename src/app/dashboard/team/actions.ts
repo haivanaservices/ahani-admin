@@ -4,7 +4,6 @@ import { createClient as createServerClient } from '../../../utils/supabase/serv
 import { createClient as createAdminClient } from '@supabase/supabase-js';
 import { revalidatePath } from 'next/cache';
 
-// Stateless Supabase Admin Client helper for privileged server operations
 function getAdminClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -21,7 +20,6 @@ function getAdminClient() {
   });
 }
 
-// Shared helper to verify the caller is an authenticated Workspace Owner with a valid agency
 async function verifyWorkspaceOwner() {
   const supabase = await createServerClient();
   const {
@@ -49,7 +47,7 @@ async function verifyWorkspaceOwner() {
 // 1. Invite a new Admin
 export async function inviteAdmin(formData: FormData): Promise<void> {
   const rawEmail = formData.get('email');
-  const email = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
+  const email: string = typeof rawEmail === 'string' ? rawEmail.trim().toLowerCase() : '';
 
   if (!email) {
     throw new Error('Email is required.');
@@ -63,17 +61,12 @@ export async function inviteAdmin(formData: FormData): Promise<void> {
 
   const supabaseAdmin = getAdminClient();
 
-  const redirectTo =
-    process.env.NODE_ENV === 'development'
-      ? 'http://localhost:3000/auth/callback'
-      : 'https://ai.ahani.app/auth/callback';
-
   const { error } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
     data: {
       agency_id: profile.agency_id,
       account_type: 'admin',
     },
-    redirectTo,
+    redirectTo: 'https://www.ahani.ai/auth/callback',
   });
 
   if (error) {
@@ -86,7 +79,7 @@ export async function inviteAdmin(formData: FormData): Promise<void> {
 // 2. Transfer Ownership
 export async function transferOwnership(formData: FormData): Promise<void> {
   const rawUserId = formData.get('userId');
-  const newOwnerId = typeof rawUserId === 'string' ? rawUserId.trim() : '';
+  const newOwnerId: string = typeof rawUserId === 'string' ? rawUserId.trim() : '';
 
   if (!newOwnerId) {
     throw new Error('Target user ID is required.');
@@ -98,7 +91,6 @@ export async function transferOwnership(formData: FormData): Promise<void> {
     throw new Error('You are already the Workspace Owner.');
   }
 
-  // Verify the target is an active member of the same agency before transferring
   const supabaseAdmin = getAdminClient();
   const { data: targetProfile, error: targetError } = await supabaseAdmin
     .from('profiles')
@@ -111,7 +103,6 @@ export async function transferOwnership(formData: FormData): Promise<void> {
     throw new Error('Target user does not belong to your workspace.');
   }
 
-  // Call the secure database RPC to handle the atomic transfer
   const { error } = await supabase.rpc('transfer_workspace_ownership', {
     p_new_owner_id: newOwnerId,
   });
@@ -126,7 +117,7 @@ export async function transferOwnership(formData: FormData): Promise<void> {
 // 3. Remove an Admin
 export async function removeAdmin(formData: FormData): Promise<void> {
   const rawUserId = formData.get('userId');
-  const adminId = typeof rawUserId === 'string' ? rawUserId.trim() : '';
+  const adminId: string = typeof rawUserId === 'string' ? rawUserId.trim() : '';
 
   if (!adminId) {
     throw new Error('Target user ID is required.');
@@ -140,7 +131,6 @@ export async function removeAdmin(formData: FormData): Promise<void> {
 
   const supabaseAdmin = getAdminClient();
 
-  // Verify target belongs to this agency and is not an owner
   const { data: targetProfile, error: fetchError } = await supabaseAdmin
     .from('profiles')
     .select('id, agency_id, account_type')
@@ -156,7 +146,6 @@ export async function removeAdmin(formData: FormData): Promise<void> {
     throw new Error('Cannot remove the Workspace Owner.');
   }
 
-  // Use Admin client scoped to agency_id so RLS WITH CHECK doesn't silently block nullifying agency_id
   const { error } = await supabaseAdmin
     .from('profiles')
     .update({ agency_id: null, account_type: 'individual' })
@@ -173,7 +162,7 @@ export async function removeAdmin(formData: FormData): Promise<void> {
 // 4. Revoke a Pending Invite
 export async function revokeInvite(formData: FormData): Promise<void> {
   const rawUserId = formData.get('userId');
-  const userId = typeof rawUserId === 'string' ? rawUserId.trim() : '';
+  const userId: string = typeof rawUserId === 'string' ? rawUserId.trim() : '';
 
   if (!userId) {
     throw new Error('User ID is required.');
@@ -187,7 +176,6 @@ export async function revokeInvite(formData: FormData): Promise<void> {
 
   const supabaseAdmin = getAdminClient();
 
-  // Verify the invited user actually belongs to this agency and is still pending
   const { data: targetAuth, error: authLookupError } =
     await supabaseAdmin.auth.admin.getUserById(userId);
 
