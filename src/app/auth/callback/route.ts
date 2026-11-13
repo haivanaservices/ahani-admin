@@ -20,6 +20,11 @@ export async function GET(request: Request) {
     });
     
     if (!error) {
+      // FIX: If this is a team member invitation or password recovery, 
+      // route them to the password setup screen before letting them into the dashboard.
+      if (type === 'invite' || type === 'recovery') {
+        return NextResponse.redirect(new URL('/auth/update-password', request.url));
+      }
       return NextResponse.redirect(new URL(next, request.url));
     } else {
       console.error("Token Hash error:", error.message);
@@ -31,6 +36,9 @@ export async function GET(request: Request) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     
     if (!error) {
+      if (type === 'invite' || type === 'recovery') {
+        return NextResponse.redirect(new URL('/auth/update-password', request.url));
+      }
       return NextResponse.redirect(new URL(next, request.url));
     } else {
       console.error("Code exchange error:", error.message);
