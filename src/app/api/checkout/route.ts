@@ -46,18 +46,41 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Resolve true agency_id and verification state directly from profiles
+    // Fetch user's profile without hardcoding optional columns that may live on agencies
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
-      .select('agency_id, is_verified_enterprise')
+      .select('*')
       .eq('id', user.id)
       .single();
 
-    if (profileError || !profile?.agency_id) {
+    if (profileError) {
+      console.error('Checkout profile lookup error:', profileError);
+      return NextResponse.json({ error: 'Failed to load workspace profile.' }, { status: 500 });
+    }
+
+    if (
+      !profile?.agency_id ||
+      (profile.account_type !== 'owner' && profile.account_type !== 'admin')
+    ) {
       return NextResponse.json({ error: 'Agency profile not found.' }, { status: 403 });
     }
 
-    if (profile.is_verified_enterprise === false) {
+    // Confirm workspace exists and check verification status safely if present
+    const { data: agency, error: agencyError } = await supabase
+      .from('agencies')
+      .select('*')
+      .eq('id', profile.agency_id)
+      .single();
+
+    if (agencyError || !agency) {
+      console.error('Checkout agency lookup error:', agencyError);
+      return NextResponse.json({ error: 'Agency workspace not found.' }, { status: 403 });
+    }
+
+    if (
+      profile.is_verified_enterprise === false ||
+      agency.is_verified_enterprise === false
+    ) {
       return NextResponse.json(
         { error: 'Workspace pending verification review.' },
         { status: 403 }
