@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
         // Fetch ALL campaigns for these agencies, ordered newest-first for the automatic tie-breaker
         const { data: campaigns } = await supabase
           .from('campaigns')
-          .select('id, agency_id, name, fingerprint_rules')
+          .select('id, agency_id, name, fingerprint_rules, total_scans')
           .in('agency_id', agencyIds)
           .order('created_at', { ascending: false });
 
@@ -328,7 +328,7 @@ You MUST respond strictly with a valid JSON object in this format:
           ] 
         }
       ],
-      max_tokens: 500, 
+      max_tokens: 1000, 
       response_format: { type: 'json_object' } // Force JSON to prevent text chunk parsing errors
     });
 

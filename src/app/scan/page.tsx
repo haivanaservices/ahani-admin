@@ -67,6 +67,7 @@ export default function AhaniWebScanner() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentImageFile = useRef<File | null>(null);
+  const currentFilePath = useRef<string | null>(null);
 
   // Live QR Scanner State
   const [showQRScanner, setShowQRScanner] = useState(false);
@@ -279,6 +280,7 @@ export default function AhaniWebScanner() {
       const rawFile = e.target.files[0];
       const compressedFile = await compressImage(rawFile);
       currentImageFile.current = compressedFile;
+      currentFilePath.current = null;
 
       await processDocument(compressedFile, false);
     } catch (error) {
@@ -289,18 +291,24 @@ export default function AhaniWebScanner() {
   };
 
   const processDocument = async (imageFile: File, allowCitizenBilling: boolean) => {
+    setIsLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       
       const savedQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
-      const filePath = `scans/${Date.now()}_scan.jpg`;
+      let filePath = currentFilePath.current;
 
-      const { error: uploadError } = await supabase.storage
-        .from('ephemeral_scans')
-        .upload(filePath, imageFile, { upsert: false });
+      if (!filePath) {
+        filePath = `scans/${Date.now()}_scan.jpg`;
 
-      if (uploadError) throw uploadError;
+        const { error: uploadError } = await supabase.storage
+          .from('ephemeral_scans')
+          .upload(filePath, imageFile, { upsert: false });
+
+        if (uploadError) throw uploadError;
+        currentFilePath.current = filePath;
+      }
 
       const { data, error } = await supabase.functions.invoke('read-mail', {
         headers: {
@@ -460,6 +468,7 @@ export default function AhaniWebScanner() {
     setCanShowFollowUp(false);
     setIsAskingQuestion(false);
     currentImageFile.current = null;
+    currentFilePath.current = null;
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -830,11 +839,13 @@ export default function AhaniWebScanner() {
 
                   {currentUserEmail && (creditBalance ?? 0) > 0 ? (
                     <button 
+                      disabled={isLoading}
                       onClick={() => {
+                        if (isLoading) return;
                         setShowNoMatchModal(false);
                         if (currentImageFile.current) processDocument(currentImageFile.current, true);
                       }}
-                      className="w-full bg-purple-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-purple-800 transition"
+                      className="w-full bg-purple-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-purple-800 transition disabled:opacity-50"
                     >
                       Pay with Wallet (1 Credit)
                     </button>

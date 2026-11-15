@@ -1,44 +1,36 @@
-
 [functions.process-scan]
 enabled = true
 verify_jwt = true
 import_map = "./functions/process-scan/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/process-scan/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/process-scan/*.html" ]
 
 [functions.ai-bouncer]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/ai-bouncer/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/ai-bouncer/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/ai-bouncer/*.html" ]
 
 [functions.ai-investigator]
 enabled = true
 verify_jwt = true
 import_map = "./functions/ai-investigator/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/ai-investigator/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/ai-investigator/*.html" ]
 
 [functions.notify-admin]
-enabled = true
+enabled = false
 verify_jwt = true
 import_map = "./functions/notify-admin/deno.json"
-# Uncomment to specify a custom file path to the entrypoint.
-# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
 entrypoint = "./functions/notify-admin/index.ts"
-# Specifies static files to be bundled with the function. Supports glob patterns.
-# For example, if you want to serve static HTML pages in your function:
-# static_files = [ "./functions/notify-admin/*.html" ]
+
+[functions.read-mail]
+enabled = true
+verify_jwt = false
+import_map = "./functions/read-mail/deno.json"
+entrypoint = "./functions/read-mail/index.ts"
+
+[functions.whisper-transcribe]
+enabled = true
+verify_jwt = true
+# Uncomment import_map below if ./functions/whisper-transcribe/deno.json exists:
+# import_map = "./functions/whisper-transcribe/deno.json"
+entrypoint = "./functions/whisper-transcribe/index.ts"
