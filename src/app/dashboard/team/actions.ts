@@ -27,6 +27,90 @@ function getAdminClient() {
   });
 }
 
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+async function sendWorkspaceRestoredEmail(params: {
+  to: string;
+  agencyName: string;
+  restoredByEmail?: string;
+}): Promise<void> {
+  const resendApiKey = process.env.RESEND_API_KEY;
+  if (!resendApiKey) {
+    console.warn('Skipping workspace-restored email: RESEND_API_KEY is not configured.');
+    return;
+  }
+
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'Ahani Admin <noreply@ahani.ai>';
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.ahani.ai').replace(/\/$/, '');
+  const loginUrl = `${siteUrl}/login`;
+
+  const safeAgency = escapeHtml(params.agencyName);
+  const safeRestoredBy = params.restoredByEmail ? escapeHtml(params.restoredByEmail) : null;
+
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; color: #111827;">
+      <h2 style="margin: 0 0 16px; font-size: 20px; font-weight: 600;">Workspace Access Restored</h2>
+      <p style="margin: 0 0 16px; line-height: 1.6; color: #374151;">
+        Your administrator access to <strong>${safeAgency}</strong> on Ahani has been restored${
+          safeRestoredBy ? ` by <strong>${safeRestoredBy}</strong>` : ''
+        }.
+      </p>
+      <p style="margin: 0 0 24px; line-height: 1.6; color: #374151;">
+        Because you already have an active Ahani account, you can sign in immediately using your existing email and password.
+      </p>
+      <p style="margin: 0 0 24px;">
+        <a href="${loginUrl}" style="display: inline-block; background-color: #111827; color: #ffffff; text-decoration: none; padding: 12px 20px; border-radius: 6px; font-weight: 500;">
+          Sign in to Dashboard
+        </a>
+      </p>
+      <p style="margin: 0; font-size: 13px; color: #6b7280;">
+        Forgot your password? Use the "Forgot password?" link on the login page at ${loginUrl}.
+      </p>
+    </div>
+  `;
+
+  const text = [
+    'Workspace Access Restored',
+    '',
+    `Your administrator access to ${params.agencyName} on Ahani has been restored${
+      params.restoredByEmail ? ` by ${params.restoredByEmail}` : ''
+    }.`,
+    'You can sign in immediately using your existing email and password:',
+    loginUrl,
+  ].join('\n');
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: fromEmail,
+        to: [params.to],
+        subject: `Your access to ${params.agencyName} on Ahani has been restored`,
+        html,
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error('Resend workspace-restored email error:', response.status, errorBody);
+    }
+  } catch (err) {
+    console.error('Failed to send workspace-restored email via Resend:', err);
+  }
+}
+
 async function verifyWorkspaceOwner() {
   const supabase = await createServerClient();
   const {
@@ -191,18 +275,39 @@ export async function inviteAdmin(formData: FormData): Promise<void> {
     throw new Error(metaError.message);
   }
 
-  // If the user never confirmed their account previously, resend setup invite
-  if (
+  const isUnconfirmedUser = Boolean(
     authUserLookup?.user &&
-    !authUserLookup.user.email_confirmed_at &&
-    !authUserLookup.user.last_sign_in_at
-  ) {
+      !authUserLookup.user.email_confirmed_at &&
+      !authUserLookup.user.last_sign_in_at
+  );
+
+  if (isUnconfirmedUser) {
+    // User never completed initial setup: resend Supabase Auth invite link
     await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
       data: {
         agency_id: profile.agency_id,
         account_type: 'admin',
       },
       redirectTo: 'https://www.ahani.ai/auth/callback',
+    });
+  } else {
+    // Confirmed user already has a password: send Resend notification email
+    const { data: agencyRow } = await supabaseAdmin
+      .from('agencies')
+      .select('*')
+      .eq('id', profile.agency_id)
+      .maybeSingle();
+
+    const agencyRecord = agencyRow as Record<string, unknown> | null;
+    const agencyName =
+      (typeof agencyRecord?.agency_name === 'string' && agencyRecord.agency_name) ||
+      (typeof agencyRecord?.name === 'string' && agencyRecord.name) ||
+      'your agency workspace';
+
+    await sendWorkspaceRestoredEmail({
+      to: email,
+      agencyName,
+      restoredByEmail: user.email ?? undefined,
     });
   }
 
