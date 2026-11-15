@@ -68,6 +68,7 @@ export default function AhaniWebScanner() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentImageFile = useRef<File | null>(null);
   const currentFilePath = useRef<string | null>(null);
+  const pendingQrRetry = useRef<boolean>(false);
 
   // Live QR Scanner State
   const [showQRScanner, setShowQRScanner] = useState(false);
@@ -167,7 +168,12 @@ export default function AhaniWebScanner() {
               localStorage.setItem('ahani_saved_qrs', JSON.stringify(existingQRs));
             }
             
-            alert('Agency linked successfully! Your next scan is covered.');
+            if (pendingQrRetry.current && currentImageFile.current) {
+              pendingQrRetry.current = false;
+              processDocument(currentImageFile.current, false);
+            } else {
+              alert('Agency linked successfully! Your next scan is covered.');
+            }
             
           }).catch(console.error);
         },
@@ -176,6 +182,7 @@ export default function AhaniWebScanner() {
         }
       ).catch((err) => {
         console.error("Failed to start scanner", err);
+        pendingQrRetry.current = false;
         alert("Camera access denied or unavailable.");
         setShowQRScanner(false);
       });
@@ -183,6 +190,7 @@ export default function AhaniWebScanner() {
   };
 
   const stopLiveScanner = () => {
+    pendingQrRetry.current = false;
     if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
       html5QrCodeRef.current.stop().then(() => {
         html5QrCodeRef.current?.clear();
@@ -281,6 +289,7 @@ export default function AhaniWebScanner() {
       const compressedFile = await compressImage(rawFile);
       currentImageFile.current = compressedFile;
       currentFilePath.current = null;
+      pendingQrRetry.current = false;
 
       await processDocument(compressedFile, false);
     } catch (error) {
@@ -293,7 +302,11 @@ export default function AhaniWebScanner() {
   const processDocument = async (imageFile: File, allowCitizenBilling: boolean) => {
     setIsLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      let { data: { session } } = await supabase.auth.getSession();
+      if (session?.expires_at && session.expires_at * 1000 < Date.now() + 10000) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session;
+      }
       const token = session?.access_token;
       
       const savedQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
@@ -311,9 +324,7 @@ export default function AhaniWebScanner() {
       }
 
       const { data, error } = await supabase.functions.invoke('read-mail', {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : '',
-        },
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         body: {
           filePath,
           targetLanguage: selectedLanguage,
@@ -344,7 +355,14 @@ export default function AhaniWebScanner() {
       if (status === 402 || errorStr.includes('402') || errorStr.includes('funds') || errorStr.includes('insufficient')) {
         setIsAgencyOffline(true);
         setShowNoMatchModal(true);
-      } else if (status === 404 || errorStr.includes('404') || errorStr.includes('no matching agency')) {
+      } else if (
+        status === 404 || errorStr.includes('404') || errorStr.includes('no matching agency') ||
+        status === 401 || errorStr.includes('401') || errorStr.includes('unauthorized') || errorStr.includes('wallet')
+      ) {
+        if (status === 401 || errorStr.includes('401') || errorStr.includes('unauthorized')) {
+          setCurrentUserEmail(null);
+          setCreditBalance(0);
+        }
         setIsAgencyOffline(false);
         setShowNoMatchModal(true);
       } else {
@@ -404,9 +422,7 @@ export default function AhaniWebScanner() {
       await supabase.storage.from('ephemeral_scans').upload(filePath, currentImageFile.current);
 
       const { data, error } = await supabase.functions.invoke('read-mail', {
-        headers: {
-          Authorization: token ? `Bearer ${token}` : '',
-        },
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         body: {
           filePath,
           targetLanguage: selectedLanguage,
@@ -469,6 +485,7 @@ export default function AhaniWebScanner() {
     setIsAskingQuestion(false);
     currentImageFile.current = null;
     currentFilePath.current = null;
+    pendingQrRetry.current = false;
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -563,7 +580,10 @@ export default function AhaniWebScanner() {
 
         <div className="hidden sm:flex gap-2 items-center">
           <button 
-            onClick={startLiveScanner}
+            onClick={() => {
+              pendingQrRetry.current = false;
+              startLiveScanner();
+            }}
             className="bg-purple-900 text-white px-3 py-1.5 rounded-full text-sm font-bold flex items-center gap-1.5"
           >
             <QrCode size={16} /> Agency
@@ -604,6 +624,7 @@ export default function AhaniWebScanner() {
             <button 
               onClick={() => {
                 setIsMobileMenuOpen(false);
+                pendingQrRetry.current = false;
                 startLiveScanner();
               }}
               className="w-full bg-slate-100 text-slate-700 py-3.5 rounded-xl text-base font-bold flex items-center justify-center gap-2"
@@ -830,6 +851,7 @@ export default function AhaniWebScanner() {
                   <button 
                     onClick={() => {
                       setShowNoMatchModal(false);
+                      pendingQrRetry.current = true;
                       startLiveScanner();
                     }}
                     className="w-full bg-indigo-600 text-white py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition"
@@ -860,7 +882,7 @@ export default function AhaniWebScanner() {
                       }}
                       className="w-full bg-purple-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-purple-800 transition"
                     >
-                      Pay with Credit Card
+                      {currentUserEmail ? 'Pay with Credit Card' : 'Use Wallet or Credit Card'}
                     </button>
                   )}
                 </div>
