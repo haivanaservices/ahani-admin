@@ -9,6 +9,9 @@ import WhisperMicButton from '../../components/WhisperMicButton';
 import AhaniOtpModal from '../../components/AhaniOtpModal';
 import { Html5Qrcode } from 'html5-qrcode';
 
+const PENDING_SCAN_KEY = 'ahani_pending_scan';
+const PENDING_SCAN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
 const FALLBACK_LANGUAGES = [
   'Afrikaans', 'Albanian', 'Amharic', 'Arabic', 'Armenian', 'Azerbaijani',
   'Basque', 'Belarusian', 'Bengali', 'Bosnian', 'Bulgarian', 'Burmese',
@@ -69,6 +72,7 @@ export default function AhaniWebScanner() {
   const currentImageFile = useRef<File | null>(null);
   const currentFilePath = useRef<string | null>(null);
   const pendingQrRetry = useRef<boolean>(false);
+  const isProcessingRef = useRef<boolean>(false);
 
   // Live QR Scanner State
   const [showQRScanner, setShowQRScanner] = useState(false);
@@ -94,7 +98,7 @@ export default function AhaniWebScanner() {
   }, [isMobileMenuOpen, isLangDropdownOpen]);
 
   useEffect(() => {
-    checkUserSession();
+    checkUserSessionAndPendingScan();
     fetchLanguages();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -168,7 +172,7 @@ export default function AhaniWebScanner() {
               localStorage.setItem('ahani_saved_qrs', JSON.stringify(existingQRs));
             }
             
-            if (pendingQrRetry.current && currentImageFile.current) {
+            if (pendingQrRetry.current && (currentFilePath.current || currentImageFile.current)) {
               pendingQrRetry.current = false;
               processDocument(currentImageFile.current, false);
             } else {
@@ -204,11 +208,42 @@ export default function AhaniWebScanner() {
     }
   };
 
-  const checkUserSession = async () => {
+  const checkUserSessionAndPendingScan = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setCurrentUserEmail(user.email || null);
       fetchUserCredits();
+    }
+
+    // Restore pending scan if mobile browser reloaded during OTP check, Magic Link, or Stripe redirect
+    try {
+      const rawPending = localStorage.getItem(PENDING_SCAN_KEY);
+      if (!rawPending) return;
+
+      const pending = JSON.parse(rawPending);
+      const isFresh = pending?.filePath && pending?.ts && (Date.now() - pending.ts < PENDING_SCAN_TTL_MS);
+
+      if (!isFresh) {
+        localStorage.removeItem(PENDING_SCAN_KEY);
+        return;
+      }
+
+      currentFilePath.current = pending.filePath;
+      if (pending.targetLanguage) setSelectedLanguage(pending.targetLanguage);
+      if (typeof pending.isVoiceMode === 'boolean') setIsVoiceMode(pending.isVoiceMode);
+
+      if (user && (pending.stage === 'awaiting_resume' || pending.stage === 'awaiting_otp')) {
+        // Consume immediately so it can never fire twice
+        localStorage.removeItem(PENDING_SCAN_KEY);
+        await processDocument(null, true, pending.targetLanguage, pending.isVoiceMode);
+      } else if (!user && pending.stage === 'awaiting_otp' && pending.email) {
+        // Browser reloaded while user switched to Mail app to read OTP code
+        setEmailInput(pending.email);
+        setShowOtpModal(true);
+      }
+    } catch (e) {
+      console.error('Failed restoring pending scan:', e);
+      localStorage.removeItem(PENDING_SCAN_KEY);
     }
   };
 
@@ -278,6 +313,7 @@ export default function AhaniWebScanner() {
     if (!e.target.files || e.target.files.length === 0) return;
     
     if (isPlaying) stopAudio();
+    localStorage.removeItem(PENDING_SCAN_KEY);
     setIsLoading(true);
     setResultText(null);
     setAudioBase64(null);
@@ -299,7 +335,14 @@ export default function AhaniWebScanner() {
     }
   };
 
-  const processDocument = async (imageFile: File, allowCitizenBilling: boolean) => {
+  const processDocument = async (
+    imageFile: File | null,
+    allowCitizenBilling: boolean,
+    langOverride?: string,
+    voiceOverride?: boolean
+  ) => {
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
     setIsLoading(true);
     try {
       let { data: { session } } = await supabase.auth.getSession();
@@ -313,6 +356,7 @@ export default function AhaniWebScanner() {
       let filePath = currentFilePath.current;
 
       if (!filePath) {
+        if (!imageFile) throw new Error('No document image available.');
         filePath = `scans/${Date.now()}_scan.jpg`;
 
         const { error: uploadError } = await supabase.storage
@@ -323,12 +367,15 @@ export default function AhaniWebScanner() {
         currentFilePath.current = filePath;
       }
 
+      const effectiveLanguage = langOverride ?? selectedLanguage;
+      const effectiveVoiceMode = voiceOverride ?? isVoiceMode;
+
       const { data, error } = await supabase.functions.invoke('read-mail', {
         ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
         body: {
           filePath,
-          targetLanguage: selectedLanguage,
-          generateAudio: isVoiceMode,
+          targetLanguage: effectiveLanguage,
+          generateAudio: effectiveVoiceMode,
           saved_qr_codes: savedQRs,
           allow_citizen_billing: allowCitizenBilling,
           use_personal_credits: allowCitizenBilling
@@ -337,6 +384,8 @@ export default function AhaniWebScanner() {
 
       if (error) throw error;
       if (data.error) throw new Error(data.error);
+
+      localStorage.removeItem(PENDING_SCAN_KEY);
 
       if (data.billed_to && data.billed_to.startsWith('citizen')) {
         fetchUserCredits();
@@ -369,6 +418,7 @@ export default function AhaniWebScanner() {
         setResultText('Could not read document. Please try again.');
       }
     } finally {
+      isProcessingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -378,14 +428,26 @@ export default function AhaniWebScanner() {
     setIsSendingOtp(true);
 
     try {
+      const trimmedEmail = emailInput.trim();
       const { error } = await supabase.auth.signInWithOtp({
-        email: emailInput.trim(),
+        email: trimmedEmail,
         options: {
           shouldCreateUser: true
         }
       });
 
       if (error) throw error;
+
+      if (currentFilePath.current) {
+        localStorage.setItem(PENDING_SCAN_KEY, JSON.stringify({
+          filePath: currentFilePath.current,
+          email: trimmedEmail,
+          targetLanguage: selectedLanguage,
+          isVoiceMode,
+          stage: 'awaiting_otp',
+          ts: Date.now()
+        }));
+      }
 
       setShowNoMatchModal(false);
       setShowOtpModal(true);
@@ -400,13 +462,28 @@ export default function AhaniWebScanner() {
     setShowOtpModal(false);
     setShowEmailCapture(false);
     
-    if (currentImageFile.current) {
-       setTimeout(() => processDocument(currentImageFile.current!, true), 500);
+    if (currentFilePath.current || currentImageFile.current) {
+      try {
+        const raw = localStorage.getItem(PENDING_SCAN_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          localStorage.setItem(PENDING_SCAN_KEY, JSON.stringify({
+            ...parsed,
+            stage: 'awaiting_resume',
+            ts: Date.now()
+          }));
+        }
+      } catch {}
+
+      setTimeout(() => {
+        localStorage.removeItem(PENDING_SCAN_KEY);
+        processDocument(currentImageFile.current, true);
+      }, 400);
     }
   };
 
   const askFollowUp = async (inputQuery: string) => {
-    if (!inputQuery.trim() || !currentImageFile.current) return;
+    if (!inputQuery.trim() || (!currentFilePath.current && !currentImageFile.current)) return;
     
     if (isPlaying) stopAudio();
     setIsAskingQuestion(true);
@@ -417,9 +494,13 @@ export default function AhaniWebScanner() {
       const token = session?.access_token;
       
       const savedQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
-      const filePath = `scans/${Date.now()}_followup.jpg`;
+      let filePath = currentFilePath.current;
 
-      await supabase.storage.from('ephemeral_scans').upload(filePath, currentImageFile.current);
+      if (!filePath && currentImageFile.current) {
+        filePath = `scans/${Date.now()}_followup.jpg`;
+        await supabase.storage.from('ephemeral_scans').upload(filePath, currentImageFile.current);
+        currentFilePath.current = filePath;
+      }
 
       const { data, error } = await supabase.functions.invoke('read-mail', {
         ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
@@ -479,6 +560,7 @@ export default function AhaniWebScanner() {
   // --- NEW: Added handleResetSession to cleanly wipe the form for a new scan ---
   const handleResetSession = () => {
     stopAudio();
+    localStorage.removeItem(PENDING_SCAN_KEY);
     setResultText(null);
     setAudioBase64(null);
     setCanShowFollowUp(false);
@@ -490,6 +572,7 @@ export default function AhaniWebScanner() {
   };
 
   const handleSignOut = async () => {
+    localStorage.removeItem(PENDING_SCAN_KEY);
     await supabase.auth.signOut();
     router.refresh();
   };
@@ -823,6 +906,7 @@ export default function AhaniWebScanner() {
           <div className="bg-white w-full max-w-2xl mx-auto rounded-3xl p-8 shadow-2xl relative">
             <button 
               onClick={() => {
+                localStorage.removeItem(PENDING_SCAN_KEY);
                 setShowNoMatchModal(false);
                 setShowEmailCapture(false);
               }} 
@@ -865,7 +949,9 @@ export default function AhaniWebScanner() {
                       onClick={() => {
                         if (isLoading) return;
                         setShowNoMatchModal(false);
-                        if (currentImageFile.current) processDocument(currentImageFile.current, true);
+                        if (currentFilePath.current || currentImageFile.current) {
+                          processDocument(currentImageFile.current, true);
+                        }
                       }}
                       className="w-full bg-purple-900 text-white py-4 rounded-xl font-bold text-lg hover:bg-purple-800 transition disabled:opacity-50"
                     >
@@ -875,6 +961,16 @@ export default function AhaniWebScanner() {
                     <button 
                       onClick={() => {
                         if (currentUserEmail) {
+                          if (currentFilePath.current) {
+                            localStorage.setItem(PENDING_SCAN_KEY, JSON.stringify({
+                              filePath: currentFilePath.current,
+                              email: currentUserEmail,
+                              targetLanguage: selectedLanguage,
+                              isVoiceMode,
+                              stage: 'awaiting_resume',
+                              ts: Date.now()
+                            }));
+                          }
                           router.push('/buy-credits');
                         } else {
                           setShowEmailCapture(true);
@@ -923,7 +1019,15 @@ export default function AhaniWebScanner() {
       <AhaniOtpModal 
         email={emailInput}
         isOpen={showOtpModal}
-        onClose={() => setShowOtpModal(false)}
+        onClose={() => {
+          setShowOtpModal(false);
+          try {
+            const raw = localStorage.getItem(PENDING_SCAN_KEY);
+            if (raw && JSON.parse(raw)?.stage === 'awaiting_otp') {
+              localStorage.removeItem(PENDING_SCAN_KEY);
+            }
+          } catch {}
+        }}
         onVerified={handleOtpVerified}
       />
     </div>
