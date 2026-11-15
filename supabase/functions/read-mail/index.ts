@@ -202,9 +202,21 @@ Respond strictly with a valid JSON object in this format:
     if (!matchedAgencyId) {
       console.log("🛑 BOUNCER: No Agency match established.");
 
-      if (!userId) {
+     if (!userId) {
+         if (!use_personal_credits && !allow_citizen_billing) {
+           console.log("🛑 BOUNCER: Anonymous scan with no Agency match. Throwing 404 to prompt payment choice.");
+           return new Response(JSON.stringify({ 
+             error: 'No matching agency found. Prompting user for payment choice.' 
+           }), { 
+             status: 404,
+             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+           });
+         }
          console.log("🛑 BOUNCER: Missing user ID. Cannot process personal credits.");
-         return new Response(JSON.stringify({ error: 'Unauthorized. Please link your wallet.' }), { status: 401, headers: corsHeaders });
+         return new Response(JSON.stringify({ error: 'Unauthorized. Please link your wallet.' }), { 
+           status: 401, 
+           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+         });
       }
 
       const { data: walletData } = await supabase
