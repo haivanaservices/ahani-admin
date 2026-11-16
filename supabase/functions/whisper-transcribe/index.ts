@@ -5,87 +5,89 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function detectAudioFormat(bytes: Uint8Array, fallbackExt = 'webm') {
+  // iOS Safari / WebKit MP4 or M4A container has 'ftyp' at bytes 4..7
+  if (bytes.length > 8 && bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    return { ext: 'm4a', mime: 'audio/mp4' };
+  }
+  // WebM / Matroska EBML header: 1A 45 DF A3
+  if (bytes.length > 4 && bytes[0] === 0x1A && bytes[1] === 0x45 && bytes[2] === 0xDF && bytes[3] === 0xA3) {
+    return { ext: 'webm', mime: 'audio/webm' };
+  }
+  // Ogg container: 'OggS'
+  if (bytes.length > 4 && bytes[0] === 0x4F && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53) {
+    return { ext: 'ogg', mime: 'audio/ogg' };
+  }
+  return {
+    ext: fallbackExt,
+    mime: fallbackExt === 'mp4' || fallbackExt === 'm4a' ? 'audio/mp4' : 'audio/webm'
+  };
+}
+
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests from the web browser
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: corsHeaders });
   }
 
   try {
     console.log("=== STARTING WHISPER-TRANSCRIBE FUNCTION ===");
 
-    // 1. Get the audio payload sent from your Next.js app
-    const { audioUrl, audioBase64, fileExt, mimeType } = await req.json();
+    const { audioUrl, audioBase64, fileExt } = await req.json();
+    let bytes: Uint8Array | null = null;
 
-    let audioBlob: Blob | null = null;
-    const ext = fileExt || (audioUrl?.split('.').pop()?.split('?')[0]) || 'webm';
-    const resolvedMime = mimeType || (ext === 'mp4' ? 'audio/mp4' : ext === 'm4a' ? 'audio/m4a' : 'audio/webm');
-
-    // 2. Download from Supabase Storage if audioUrl is provided, otherwise decode base64 fallback
     if (audioUrl) {
-      console.log("📥 Fetching audio URL:", audioUrl);
+      console.log("📥 Downloading audioUrl:", audioUrl);
       const audioResponse = await fetch(audioUrl);
-      if (audioResponse.ok) {
-        const rawBuffer = await audioResponse.arrayBuffer();
-        audioBlob = new Blob([rawBuffer], { type: resolvedMime });
-      } else {
-        console.warn(`⚠️ Storage fetch returned ${audioResponse.status}; checking base64 fallback.`);
+      if (!audioResponse.ok) {
+        throw new Error(`Storage fetch failed with status ${audioResponse.status}`);
       }
-    }
-
-    if (!audioBlob && audioBase64) {
-      console.log("📥 Decoding direct base64 audio payload...");
+      bytes = new Uint8Array(await audioResponse.arrayBuffer());
+    } else if (audioBase64) {
+      console.log("📥 Decoding direct base64 audio...");
       const binaryStr = atob(audioBase64);
-      const bytes = new Uint8Array(binaryStr.length);
+      bytes = new Uint8Array(binaryStr.length);
       for (let i = 0; i < binaryStr.length; i++) {
         bytes[i] = binaryStr.charCodeAt(i);
       }
-      audioBlob = new Blob([bytes], { type: resolvedMime });
     }
 
-    if (!audioBlob || audioBlob.size === 0) {
-      throw new Error("Could not retrieve recorded audio payload.");
+    if (!bytes || bytes.length === 0) {
+      throw new Error("Empty audio payload received.");
     }
 
-    // 3. Package it up for the OpenAI Whisper API with the device's true extension (.mp4/.m4a on iOS, .webm on Android/Chrome)
+    const detected = detectAudioFormat(bytes, fileExt || 'webm');
+    const audioBlob = new Blob([bytes], { type: detected.mime });
+
     const formData = new FormData();
-    formData.append("file", audioBlob, `audio.${ext}`);
+    formData.append("file", audioBlob, `audio.${detected.ext}`);
     formData.append("model", "whisper-1");
 
-    // 4. Securely grab the API key
     const openAiKey = Deno.env.get('OPENAI_API_KEY');
+    console.log(`🤖 Sending audio.${detected.ext} (${bytes.length} bytes) to OpenAI Whisper...`);
 
-    console.log(`🤖 Sending audio.${ext} (${audioBlob.size} bytes) to OpenAI Whisper...`);
-
-    // 5. Send it to OpenAI
     const whisperResponse = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${openAiKey}`
-      },
+      headers: { "Authorization": `Bearer ${openAiKey}` },
       body: formData,
     });
 
     const whisperData = await whisperResponse.json();
-
     if (whisperData.error) {
       throw new Error(whisperData.error.message);
     }
 
     console.log("✅ Transcription successful:", whisperData.text);
 
-    // 6. Return the transcribed text back to Next.js
     return new Response(
       JSON.stringify({ text: whisperData.text }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    )
+    );
   } catch (error) {
     console.error("❌ CATCH BLOCK ERROR:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-
     return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
       status: 400,
-    })
+    });
   }
-})
+});

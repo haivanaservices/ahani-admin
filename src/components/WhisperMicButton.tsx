@@ -18,6 +18,7 @@ export default function WhisperMicButton({
   const [supabase] = useState(() => createClient());
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [micError, setMicError] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
 
@@ -37,112 +38,112 @@ export default function WhisperMicButton({
     if (isProcessing) return;
 
     if (isRecording) {
-      mediaRecorderRef.current?.stop();
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // STOP RECORDING & PROCESS
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      return;
+    }
 
-        const preferredMime =
-          typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-            ? 'audio/webm;codecs=opus'
-            : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm')
-              ? 'audio/webm'
-              : typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/mp4')
-                ? 'audio/mp4'
-                : '';
+    // START RECORDING (Exact native MediaRecorder init that worked previously)
+    setMicError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
 
-        const mediaRecorder = preferredMime
-          ? new MediaRecorder(stream, { mimeType: preferredMime })
-          : new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
 
-        mediaRecorderRef.current = mediaRecorder;
-        audioChunksRef.current = [];
+      mediaRecorder.onstop = async () => {
+        setIsRecording(false);
+        onRecordingStop?.();
+        setIsProcessing(true);
 
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
+        stream.getTracks().forEach(track => track.stop());
 
-        mediaRecorder.onstop = async () => {
-          setIsRecording(false);
-          onRecordingStop?.();
-          setIsProcessing(true);
-          
-          stream.getTracks().forEach(track => track.stop());
-
-          const actualMime = (mediaRecorder.mimeType || preferredMime || 'audio/webm').split(';')[0];
-          const ext = actualMime.includes('mp4')
-            ? 'mp4'
-            : actualMime.includes('m4a') || actualMime.includes('aac')
-              ? 'm4a'
-              : actualMime.includes('ogg')
-                ? 'ogg'
-                : 'webm';
+        try {
+          const actualMime = (mediaRecorder.mimeType || 'audio/mp4').split(';')[0];
+          const ext = actualMime.includes('mp4') || actualMime.includes('m4a') || actualMime.includes('aac')
+            ? 'm4a'
+            : 'webm';
 
           const audioBlob = new Blob(audioChunksRef.current, { type: actualMime });
-
-          try {
-            if (audioBlob.size === 0) {
-              throw new Error('No audio captured. Tap the mic, speak, then tap stop.');
-            }
-
-            const { data: { session } } = await supabase.auth.getSession();
-            const token = session?.access_token;
-            const audioBase64 = await blobToBase64(audioBlob);
-
-            const { data, error } = await supabase.functions.invoke('whisper-transcribe', {
-              ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-              body: {
-                audioBase64,
-                fileExt: ext,
-                mimeType: actualMime
-              }
-            });
-
-            if (error) throw error;
-            if (data?.error) throw new Error(data.error);
-
-            if (data?.text?.trim()) {
-              onTranscriptionCompleted(data.text.trim());
-            } else {
-              alert('Could not hear a question clearly. Please tap the mic and try again.');
-            }
-          } catch (err: any) {
-            console.error('Error processing audio:', err);
-            alert(`Voice transcription error: ${err?.message || 'Check whisper-transcribe JWT setting'}`);
-          } finally {
-            setIsProcessing(false);
+          if (audioBlob.size === 0) {
+            throw new Error('Empty recording — speak for 1-2s then tap stop.');
           }
-        };
 
-        mediaRecorder.start(250);
-        setIsRecording(true);
-        onRecordingStart?.();
-      } catch (err) {
-        console.error('Microphone access denied:', err);
-        alert('Please allow microphone permissions to use voice follow-ups.');
-      }
+          const audioBase64 = await blobToBase64(audioBlob);
+
+          const { data, error } = await supabase.functions.invoke('whisper-transcribe', {
+            body: { audioBase64, fileExt: ext }
+          });
+
+          if (error) {
+            const status = (error as any)?.context?.status || '';
+            throw new Error(`Transcribe HTTP ${status || 'error'}: ${error.message}`);
+          }
+          if (data?.error) {
+            throw new Error(data.error);
+          }
+
+          if (data?.text?.trim()) {
+            onTranscriptionCompleted(data.text.trim());
+          } else {
+            setMicError('No speech detected. Tap mic and try again.');
+          }
+        } catch (err: any) {
+          console.error('Error processing audio:', err);
+          setMicError(err?.message || 'Voice transcription failed');
+        } finally {
+          setIsProcessing(false);
+        }
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      onRecordingStart?.();
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      setMicError('Allow microphone permission to ask questions.');
     }
   };
 
-  if (isProcessing) {
-    return (
-      <div className="p-4 flex justify-center items-center">
-        <Loader2 className="animate-spin text-purple-900" size={32} />
-      </div>
-    );
-  }
-
   return (
-    <button
-      type="button"
-      onClick={toggleRecording}
-      className={`p-6 rounded-full transition-all duration-300 shadow-lg flex items-center justify-center ${
-        isRecording 
-          ? 'bg-red-500 text-white animate-pulse scale-110 shadow-red-500/50' 
-          : 'bg-purple-900 text-white hover:bg-purple-800 shadow-black/10'
-      }`}
-    >
-      {isRecording ? <Square size={32} fill="currentColor" /> : <Mic size={32} />}
-    </button>
+    <div className="flex flex-col items-center">
+      {isProcessing ? (
+        <div className="p-4 flex justify-center items-center">
+          <Loader2 className="animate-spin text-purple-900" size={32} />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={toggleRecording}
+          className={`p-6 rounded-full transition-all duration-300 shadow-lg flex items-center justify-center ${
+            isRecording 
+              ? 'bg-red-500 text-white animate-pulse scale-110 shadow-red-500/50' 
+              : 'bg-purple-900 text-white hover:bg-purple-800 shadow-black/10'
+          }`}
+        >
+          {isRecording ? <Square size={32} fill="currentColor" /> : <Mic size={32} />}
+        </button>
+      )}
+
+      {isRecording && (
+        <span className="text-[11px] font-bold text-red-600 mt-2">
+          Tap red square to send
+        </span>
+      )}
+
+      {micError && (
+        <span className="text-xs font-bold text-red-600 mt-2 text-center max-w-[260px]">
+          {micError}
+        </span>
+      )}
+    </div>
   );
 }
