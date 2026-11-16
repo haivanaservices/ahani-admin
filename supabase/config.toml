@@ -30,7 +30,7 @@ entrypoint = "./functions/read-mail/index.ts"
 
 [functions.whisper-transcribe]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 # Uncomment import_map below if ./functions/whisper-transcribe/deno.json exists:
 # import_map = "./functions/whisper-transcribe/deno.json"
 entrypoint = "./functions/whisper-transcribe/index.ts"
