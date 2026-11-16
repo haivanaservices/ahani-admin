@@ -71,6 +71,7 @@ export default function AhaniWebScanner() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentImageFile = useRef<File | null>(null);
   const currentFilePath = useRef<string | null>(null);
+  const lastScanFilePath = useRef<string | null>(null);
   const pendingQrRetry = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
 
@@ -325,6 +326,7 @@ export default function AhaniWebScanner() {
       const compressedFile = await compressImage(rawFile);
       currentImageFile.current = compressedFile;
       currentFilePath.current = null;
+      lastScanFilePath.current = null;
       pendingQrRetry.current = false;
 
       await processDocument(compressedFile, false);
@@ -385,7 +387,10 @@ export default function AhaniWebScanner() {
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
+      // Scan succeeded: clear pending retry path so follow-ups upload a fresh image
       localStorage.removeItem(PENDING_SCAN_KEY);
+      lastScanFilePath.current = filePath;
+      currentFilePath.current = null;
 
       if (data.billed_to && data.billed_to.startsWith('citizen')) {
         fetchUserCredits();
@@ -483,23 +488,31 @@ export default function AhaniWebScanner() {
   };
 
   const askFollowUp = async (inputQuery: string) => {
-    if (!inputQuery.trim() || (!currentFilePath.current && !currentImageFile.current)) return;
+    if (!inputQuery.trim() || (!currentImageFile.current && !lastScanFilePath.current)) return;
     
     if (isPlaying) stopAudio();
     setIsAskingQuestion(true);
     setCanShowFollowUp(false);
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      let { data: { session } } = await supabase.auth.getSession();
+      if (session?.expires_at && session.expires_at * 1000 < Date.now() + 10000) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session;
+      }
       const token = session?.access_token;
       
       const savedQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
-      let filePath = currentFilePath.current;
+      let filePath = lastScanFilePath.current;
 
-      if (!filePath && currentImageFile.current) {
+      // Always upload a fresh ephemeral copy when the File is in memory (read-mail deletes consumed scans)
+      if (currentImageFile.current) {
         filePath = `scans/${Date.now()}_followup.jpg`;
-        await supabase.storage.from('ephemeral_scans').upload(filePath, currentImageFile.current);
-        currentFilePath.current = filePath;
+        const { error: uploadError } = await supabase.storage
+          .from('ephemeral_scans')
+          .upload(filePath, currentImageFile.current, { upsert: false });
+
+        if (uploadError) throw uploadError;
       }
 
       const { data, error } = await supabase.functions.invoke('read-mail', {
@@ -516,18 +529,20 @@ export default function AhaniWebScanner() {
       });
 
       if (error) throw error;
+      if (data?.error) throw new Error(data.error);
 
       setResultText(prev => `${prev}\n\nQ: ${inputQuery}\nA: ${data.result}`);
       setAudioBase64(data.audioBase64);
-      setCanShowFollowUp(true);
       
       if (isVoiceMode && data.audioBase64) {
         playAudio(data.audioBase64); // Autoplay is safe here because user just interacted with mic
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Follow up error:", error);
+      alert(`Follow-up failed: ${error?.message || 'Please try again.'}`);
     } finally {
       setIsAskingQuestion(false);
+      setCanShowFollowUp(true);
     }
   };
 
@@ -567,6 +582,7 @@ export default function AhaniWebScanner() {
     setIsAskingQuestion(false);
     currentImageFile.current = null;
     currentFilePath.current = null;
+    lastScanFilePath.current = null;
     pendingQrRetry.current = false;
     if (fileInputRef.current) fileInputRef.current.value = '';
   };

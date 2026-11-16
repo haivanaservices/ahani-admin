@@ -34,11 +34,14 @@ Deno.serve(async (req) => {
       use_personal_credits 
     } = await req.json();
 
-    console.log("📥 Payload received | targetLanguage:", targetLanguage, "| use_personal_credits:", use_personal_credits);
+    console.log("📥 Payload received | targetLanguage:", targetLanguage, "| use_personal_credits:", use_personal_credits, "| isFollowUp:", Boolean(question));
 
     if (!filePath) {
       console.error("❌ ERROR: No file path provided.");
-      return new Response(JSON.stringify({ error: 'No file path provided' }), { status: 400, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: 'No file path provided' }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      });
     }
 
     const { data: urlData, error: urlError } = await supabase.storage
@@ -135,7 +138,11 @@ Respond strictly with a valid JSON object in this format:
             const matchResult = JSON.parse(aiResponseText);
             console.log(`📊 Parsed Result -> Agency: ${matchResult.matched_agency_id} | Score: ${matchResult.confidence_score} | Reason: ${matchResult.reasoning}`);
 
-            if (matchResult.matched_agency_id && matchResult.confidence_score >= 75) {
+            if (
+              matchResult.matched_agency_id &&
+              agencyIds.includes(matchResult.matched_agency_id) &&
+              matchResult.confidence_score >= 75
+            ) {
               console.log("✅ MATCH SUCCESS! Score meets threshold (>= 75). Checking Agency Quota...");
               
               const { data: subData } = await supabase
@@ -173,11 +180,15 @@ Respond strictly with a valid JSON object in this format:
                 
                 billedTo = 'agency_fingerprint_match';
 
-                await supabase.rpc('process_scan_billing', {
+                const { error: agencyBillError } = await supabase.rpc('process_scan_billing', {
                   p_billed_to: 'agency_fingerprint_match',
                   p_agency_id: matchedAgencyId,
                   p_citizen_id: null
                 });
+
+                if (agencyBillError) {
+                  console.error("⚠️ process_scan_billing RPC error:", agencyBillError);
+                }
                 
                 if (targetCampaignId) {
                    const matchedCampaign = campaigns.find(c => c.id === targetCampaignId);
@@ -189,7 +200,7 @@ Respond strictly with a valid JSON object in this format:
                 }
               }
             } else {
-              console.log("❌ MATCH REJECTED: Score below 75 or missing matched_agency_id.");
+              console.log("❌ MATCH REJECTED: Score below 75 or missing valid matched_agency_id.");
             }
           } catch (parseError) {
             console.error("❌ Failed to parse AI Matcher JSON:", parseError);
@@ -202,28 +213,30 @@ Respond strictly with a valid JSON object in this format:
     if (!matchedAgencyId) {
       console.log("🛑 BOUNCER: No Agency match established.");
 
-     if (!userId) {
-         if (!use_personal_credits && !allow_citizen_billing) {
-           console.log("🛑 BOUNCER: Anonymous scan with no Agency match. Throwing 404 to prompt payment choice.");
-           return new Response(JSON.stringify({ 
-             error: 'No matching agency found. Prompting user for payment choice.' 
-           }), { 
-             status: 404,
-             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-           });
-         }
-         console.log("🛑 BOUNCER: Missing user ID. Cannot process personal credits.");
-         return new Response(JSON.stringify({ error: 'Unauthorized. Please link your wallet.' }), { 
-           status: 401, 
-           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-         });
+      // Always prompt the user with the QR / Wallet modal first on initial unmatched scans
+      if (!use_personal_credits && !allow_citizen_billing) {
+        console.log("🛑 BOUNCER: use_personal_credits is FALSE. Throwing 404 to prompt payment choice.");
+        return new Response(JSON.stringify({ 
+          error: 'No matching agency found. Prompting user for payment choice.' 
+        }), { 
+          status: 404,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+
+      if (!userId) {
+        console.log("🛑 BOUNCER: Missing user ID. Cannot process personal credits.");
+        return new Response(JSON.stringify({ error: 'Unauthorized. Please link your wallet.' }), { 
+          status: 401, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        });
       }
 
       const { data: walletData } = await supabase
         .from('citizen_wallets')
         .select('monthly_free_scans_used, monthly_free_scans_max, purchased_credits')
         .eq('citizen_id', userId)
-        .single();
+        .maybeSingle();
 
       const wallet = walletData || { monthly_free_scans_max: 0, monthly_free_scans_used: 0, purchased_credits: 0 };
       const freeScansLeft = Math.max(0, wallet.monthly_free_scans_max - wallet.monthly_free_scans_used);
@@ -234,30 +247,17 @@ Respond strictly with a valid JSON object in this format:
       if (freeScansLeft > 0) {
         console.log(`🎁 User has ${freeScansLeft} free scans left. Utilizing free tier.`);
         deductionType = 'free';
+      } else if (paidCredits > 0) {
+        console.log(`💳 Out of free scans. Utilizing purchased credits (Balance: ${paidCredits}).`);
+        deductionType = 'paid';
       } else {
-        console.log(`💳 Out of free scans. Checking purchased credits (Balance: ${paidCredits}).`);
-        
-        if (!use_personal_credits && !allow_citizen_billing) {
-           console.log("🛑 BOUNCER: use_personal_credits is FALSE. Throwing 404 to prompt payment choice.");
-           return new Response(JSON.stringify({ 
-             error: 'No matching agency found. Prompting user for payment choice.' 
-           }), { 
-             status: 404,
-             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-           });
-        }
-
-        if (paidCredits > 0) {
-          deductionType = 'paid';
-        } else {
-           console.log("❌ Deduction failed. Insufficient funds.");
-           return new Response(JSON.stringify({ 
-             error: 'Insufficient personal credits.' 
-           }), { 
-             status: 402, 
-             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-           });
-        }
+        console.log("❌ Deduction failed. Insufficient funds.");
+        return new Response(JSON.stringify({ 
+          error: 'Insufficient personal credits.' 
+        }), { 
+          status: 402, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
       }
 
       console.log(`💸 Attempting to deduct 1 '${deductionType}' credit from ${userId}...`);
@@ -269,7 +269,10 @@ Respond strictly with a valid JSON object in this format:
 
       if (deductionError) {
          console.log("❌ Deduction RPC failed.", deductionError);
-         return new Response(JSON.stringify({ error: 'Failed to deduct credit.' }), { status: 500, headers: corsHeaders });
+         return new Response(JSON.stringify({ error: 'Failed to deduct credit.' }), { 
+           status: 500, 
+           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+         });
       }
       
       console.log("🟢 BOUNCER: Credit successfully deducted! Proceeding with Citizen Billing.");
@@ -357,17 +360,21 @@ You MUST respond strictly with a valid JSON object in this format:
 
     let audioBase64 = null;
     if (generateAudio && cleanText) {
-      console.log("🎙️ Generating TTS audio payload...");
-      const mp3 = await openai.audio.speech.create({
-        model: 'tts-1',
-        voice: 'nova', 
-        input: cleanText, 
-      });
-      const buffer = await mp3.arrayBuffer();
-      audioBase64 = Buffer.from(buffer).toString('base64');
+      try {
+        console.log("🎙️ Generating TTS audio payload...");
+        const mp3 = await openai.audio.speech.create({
+          model: 'tts-1',
+          voice: 'nova', 
+          input: cleanText.slice(0, 4000), 
+        });
+        const buffer = await mp3.arrayBuffer();
+        audioBase64 = Buffer.from(buffer).toString('base64');
+      } catch (ttsErr) {
+        console.error("⚠️ Non-fatal TTS error (returning text translation cleanly):", ttsErr);
+      }
     }
 
-   // 6. TELEMETRY & LOGGING (Run securely before returning)
+    // 6. TELEMETRY & LOGGING (Run securely before returning)
     const processingTimeMs = Date.now() - executionStartTime;
     
     // Map the Friction Heatmap bucket to the category column, or fallback to General Information

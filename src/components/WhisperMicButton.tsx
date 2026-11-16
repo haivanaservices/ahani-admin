@@ -34,17 +34,14 @@ export default function WhisperMicButton({
   };
 
   const toggleRecording = async () => {
-    if (isProcessing) return; // Ignore taps while AI is transcribing
+    if (isProcessing) return;
 
     if (isRecording) {
-      // STOP RECORDING & PROCESS
       mediaRecorderRef.current?.stop();
     } else {
-      // START RECORDING
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-        // Pick a MIME type natively supported by the current device (mp4 on iOS, webm on Android/Desktop)
         const preferredMime =
           typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
             ? 'audio/webm;codecs=opus'
@@ -67,10 +64,9 @@ export default function WhisperMicButton({
 
         mediaRecorder.onstop = async () => {
           setIsRecording(false);
-          onRecordingStop?.(); // Notify the parent UI (page.tsx) that recording physically stopped
+          onRecordingStop?.();
           setIsProcessing(true);
           
-          // Kill the microphone red dot in the browser tab
           stream.getTracks().forEach(track => track.stop());
 
           const actualMime = (mediaRecorder.mimeType || preferredMime || 'audio/webm').split(';')[0];
@@ -83,60 +79,44 @@ export default function WhisperMicButton({
                 : 'webm';
 
           const audioBlob = new Blob(audioChunksRef.current, { type: actualMime });
-          const fileName = `intake_${Date.now()}.${ext}`;
 
           try {
             if (audioBlob.size === 0) {
-              throw new Error('No audio captured. Tap the mic, speak your question, then tap stop.');
+              throw new Error('No audio captured. Tap the mic, speak, then tap stop.');
             }
 
             const { data: { session } } = await supabase.auth.getSession();
             const token = session?.access_token;
+            const audioBase64 = await blobToBase64(audioBlob);
 
-            let invokeBody: Record<string, string> = { fileExt: ext, mimeType: actualMime };
-
-            // 1. Try uploading to Supabase Storage first; fall back to direct base64 if anon RLS blocks audio_intake
-            const { error: uploadError } = await supabase.storage
-              .from('audio_intake')
-              .upload(fileName, audioBlob, { upsert: false, contentType: actualMime });
-
-            if (!uploadError) {
-              const { data: { publicUrl } } = supabase.storage
-                .from('audio_intake')
-                .getPublicUrl(fileName);
-              invokeBody.audioUrl = publicUrl;
-            } else {
-              console.warn('audio_intake upload skipped, using direct base64 fallback:', uploadError.message);
-              invokeBody.audioBase64 = await blobToBase64(audioBlob);
-            }
-
-            // 2. Invoke the Edge Function
             const { data, error } = await supabase.functions.invoke('whisper-transcribe', {
               ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-              body: invokeBody
+              body: {
+                audioBase64,
+                fileExt: ext,
+                mimeType: actualMime
+              }
             });
 
             if (error) throw error;
             if (data?.error) throw new Error(data.error);
 
-            // 3. Pass the transcribed text back to your UI
-            if (data && data.text && data.text.trim()) {
+            if (data?.text?.trim()) {
               onTranscriptionCompleted(data.text.trim());
             } else {
               alert('Could not hear a question clearly. Please tap the mic and try again.');
             }
           } catch (err: any) {
             console.error('Error processing audio:', err);
-            alert('Voice follow-up failed. Please try speaking your question again.');
+            alert(`Voice transcription error: ${err?.message || 'Check whisper-transcribe JWT setting'}`);
           } finally {
             setIsProcessing(false);
           }
         };
 
-        // 250ms timeslice ensures iOS Safari flushes audio chunks reliably even on brief questions
         mediaRecorder.start(250);
         setIsRecording(true);
-        onRecordingStart?.(); // Notify the parent UI (page.tsx) to disable the Listen button
+        onRecordingStart?.();
       } catch (err) {
         console.error('Microphone access denied:', err);
         alert('Please allow microphone permissions to use voice follow-ups.');
