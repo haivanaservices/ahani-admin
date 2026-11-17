@@ -64,7 +64,7 @@ export default function LandingPage() {
         {/* Desktop Navigation (Hidden on Mobile) */}
         <nav className="hidden md:flex gap-6 items-center font-medium text-sm lg:text-base">
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/about">Our Mission</Link>
-          <Link className="text-slate-500 hover:text-slate-900 transition" href="/agencies">Empower Communities</Link>
+          <Link className="text-slate-500 hover:text-slate-900 transition" href="/agencies">For Agencies</Link>
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/how-it-works">How it Works</Link>
           <Link className="text-slate-500 hover:text-slate-900 transition" href="/contact">Contact</Link>
           <Link className="text-slate-900 font-bold hover:text-slate-600 transition" href="/login">Enterprise Login</Link>
@@ -101,7 +101,7 @@ export default function LandingPage() {
               className="px-6 py-4 border-b border-slate-50 text-slate-700 font-medium"
               onClick={() => setIsMobileMenuOpen(false)}
             >
-              Empower Communities
+              For Agencies
             </Link>
             <Link 
               href="/how-it-works" 
@@ -128,7 +128,7 @@ export default function LandingPage() {
         
         <h1 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-8 leading-tight">
           Understand your mail. <br />
-          <span className="block h-[60px] md:h-[90px] mt-2 bg-gradient-to-r from-[#b37ebd] via-[#9bbca7] to-[#e8c17a] text-transparent bg-clip-text transition-all duration-300">
+          <span className="block min-h-[64px] md:min-h-[96px] pb-1 mt-2 bg-gradient-to-r from-[#b37ebd] via-[#9bbca7] to-[#e8c17a] text-transparent bg-clip-text transition-all duration-300">
             {mounted ? translations[index] : "In your language."}
           </span>
         </h1>
@@ -148,6 +148,12 @@ export default function LandingPage() {
           <p className="text-sm text-slate-500 font-medium">
             Free for agency mail • Pay-as-you-go for personal mail
           </p>
+          <Link
+            href="/agencies"
+            className="text-xs sm:text-sm text-purple-700 hover:text-purple-900 font-semibold underline underline-offset-4 mt-1 transition"
+          >
+            Public agencies: First-line spoken interpretation alongside your existing language vendors →
+          </Link>
         </div>
       </main>
 

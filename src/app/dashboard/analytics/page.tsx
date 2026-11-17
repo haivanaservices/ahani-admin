@@ -83,6 +83,10 @@ export default async function AnalyticsDashboard() {
   const totalScans = safeLogs.length;
   const rejectedScans = safeLogs.filter(log => log.outcome_status !== 'Delivered').length;
   const approvedScans = totalScans - rejectedScans;
+  const followUpSessions = safeLogs.filter(
+    log => log.outcome_status === 'Delivered' && log.category === 'Request for Action / Info'
+  ).length;
+  const initialSessions = Math.max(0, approvedScans - followUpSessions);
 
   const languageCounts = safeLogs.reduce((acc, log) => {
     const lang = log.language_code || 'Unknown';
@@ -122,7 +126,7 @@ export default async function AnalyticsDashboard() {
     .slice(0, 3);
 
   const chartLanguageData = topLanguages.map(lang => ({ name: lang.name, value: lang.count }));
-  const chartDocumentData = topDocuments.map(([name, count]) => ({ name, value: count as number }));
+  const chartDocumentData = topDocuments.map(([name, count]) => ({ name: count ? name : name, value: count as number }));
 
   return (
     <div className="max-w-6xl mx-auto p-8 space-y-8 pb-20">
@@ -131,7 +135,9 @@ export default async function AnalyticsDashboard() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-200 pb-6 gap-4">
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">Title VI Compliance Report</h1>
-          <p className="text-slate-500 mt-1">Official language access metrics and interaction logs.</p>
+          <p className="text-slate-500 mt-1">
+            First-line spoken interpretation metrics and interaction logs alongside your certified language services.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-green-200">
@@ -149,6 +155,9 @@ export default async function AnalyticsDashboard() {
             <PieChart size={18} className="text-blue-500" />
           </div>
           <p className="text-3xl font-extrabold text-slate-900">{approvedScans.toLocaleString()}</p>
+          <p className="text-xs text-slate-500 mt-1">
+            {initialSessions.toLocaleString()} document interpretations · {followUpSessions.toLocaleString()} spoken follow-ups
+          </p>
         </div>
 
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -159,6 +168,7 @@ export default async function AnalyticsDashboard() {
           <p className="text-3xl font-extrabold text-slate-900 uppercase">
             {primaryLanguage} <span className="text-lg font-medium text-slate-400 normal-case">{primaryPercent}%</span>
           </p>
+          <p className="text-xs text-slate-500 mt-1">Share of all delivered interpretation &amp; Q&amp;A sessions.</p>
         </div>
 
         <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
@@ -167,7 +177,7 @@ export default async function AnalyticsDashboard() {
             <ShieldBan size={18} className="text-red-500" />
           </div>
           <p className="text-3xl font-extrabold text-slate-900">{rejectedScans.toLocaleString()}</p>
-          <p className="text-xs text-slate-500 mt-1">Invalid captures rejected automatically.</p>
+          <p className="text-xs text-slate-500 mt-1">Invalid captures rejected automatically (0 sessions billed).</p>
         </div>
       </div>
 

@@ -7,6 +7,7 @@ import {
   Building,
   CheckCircle2,
   AlertCircle,
+  Info,
 } from 'lucide-react';
 import { createClient } from '../../../utils/supabase/server';
 import { redirect } from 'next/navigation';
@@ -192,6 +193,29 @@ export default async function BillingTiers({
           <span>Unable to load agency subscription details: {subError.message}</span>
         </div>
       )}
+
+      {/* Session Metering & First-Line Interpretation Explainer */}
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="flex items-start gap-3">
+          <Info size={18} className="text-blue-600 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">What Counts as 1 Session?</h2>
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
+              <strong>1 Session = 1 AI Interaction.</strong> An initial document scan and native-language spoken summary uses <strong>1 session</strong>, and each spoken follow-up question answered uses <strong>1 session</strong>. Unrecognized non-agency mail and invalid captures never deduct from your balance.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-start gap-3 md:border-l md:border-slate-200 md:pl-6">
+          <Shield size={18} className="text-slate-600 shrink-0 mt-0.5" />
+          <div>
+            <h2 className="text-sm font-bold text-slate-900">First-Line Interpretation Scope</h2>
+            <p className="text-xs sm:text-sm text-slate-600 mt-1 leading-relaxed">
+              Ahani complements—and does not replace—your certified human translation providers and live interpreter lines, giving residents immediate spoken explanations of routine correspondence to reduce confusion and avoidable support calls.
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* Pricing Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-8">
