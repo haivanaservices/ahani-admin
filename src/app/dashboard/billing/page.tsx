@@ -142,13 +142,10 @@ export default async function BillingTiers({
     <div className="max-w-7xl mx-auto p-8 space-y-8 pb-20">
       {/* Page Header with Real Database Metrics */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-slate-200 pb-6 gap-4">
-        <div className="max-w-2xl">
+        <div>
           <h1 className="text-3xl font-extrabold text-slate-900">Billing & Capacity</h1>
           <p className="text-slate-500 mt-1">
             Manage your session quota, top-offs, and procurement.
-          </p>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1.5">
-            Each session covers a single AI interaction, such as an initial document interpretation or a spoken follow-up answer.
           </p>
         </div>
 
@@ -279,6 +276,10 @@ export default async function BillingTiers({
           );
         })}
       </div>
+
+      <p className="text-xs text-slate-400 text-center pt-2">
+        *Each session covers a single AI interaction, such as an initial document interpretation or a spoken follow-up answer.
+      </p>
     </div>
   );
 }
