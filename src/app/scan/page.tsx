@@ -72,6 +72,7 @@ export default function AhaniWebScanner() {
   const currentImageFile = useRef<File | null>(null);
   const currentFilePath = useRef<string | null>(null);
   const lastScanFilePath = useRef<string | null>(null);
+  const scanSessionToken = useRef<string | null>(null);
   const pendingQrRetry = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
 
@@ -172,6 +173,9 @@ export default function AhaniWebScanner() {
               existingQRs.push(campaignId);
               localStorage.setItem('ahani_saved_qrs', JSON.stringify(existingQRs));
             }
+
+            // Clear cached session token so newly linked QR is evaluated cleanly
+            scanSessionToken.current = null;
             
             if (pendingQrRetry.current && (currentFilePath.current || currentImageFile.current)) {
               pendingQrRetry.current = false;
@@ -327,6 +331,7 @@ export default function AhaniWebScanner() {
       currentImageFile.current = compressedFile;
       currentFilePath.current = null;
       lastScanFilePath.current = null;
+      scanSessionToken.current = null;
       pendingQrRetry.current = false;
 
       await processDocument(compressedFile, false);
@@ -387,9 +392,10 @@ export default function AhaniWebScanner() {
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
-      // Scan succeeded: clear pending retry path so follow-ups upload a fresh image
+      // Scan succeeded: retain lastScanFilePath and signed session_token for fast-path follow-ups
       localStorage.removeItem(PENDING_SCAN_KEY);
       lastScanFilePath.current = filePath;
+      scanSessionToken.current = data.session_token || null;
       currentFilePath.current = null;
 
       if (data.billed_to && data.billed_to.startsWith('citizen')) {
@@ -398,9 +404,9 @@ export default function AhaniWebScanner() {
 
       setResultText(data.result || 'Could not read document.');
       setAudioBase64(data.audioBase64);
-      setCanShowFollowUp(true); // Enable UI, but do not force auto-play to avoid browser blocks
+      setCanShowFollowUp(true);
       
-   } catch (error: any) {
+    } catch (error: any) {
       console.error("Raw Supabase Error:", error);
       
       const status = error?.context?.status || error?.status || 0;
@@ -504,42 +510,79 @@ export default function AhaniWebScanner() {
       
       const savedQRs = JSON.parse(localStorage.getItem('ahani_saved_qrs') || '[]');
       let filePath = lastScanFilePath.current;
+      let tokenToUse = scanSessionToken.current;
 
-      // Always upload a fresh ephemeral copy when the File is in memory (read-mail deletes consumed scans)
-      if (currentImageFile.current) {
+      // Reuse lastScanFilePath so session_token fp matches and zero mobile re-upload is needed
+      if (!filePath && currentImageFile.current) {
         filePath = `scans/${Date.now()}_followup.jpg`;
+        tokenToUse = null;
         const { error: uploadError } = await supabase.storage
           .from('ephemeral_scans')
           .upload(filePath, currentImageFile.current, { upsert: false });
 
         if (uploadError) throw uploadError;
+        lastScanFilePath.current = filePath;
       }
 
-      const { data, error } = await supabase.functions.invoke('read-mail', {
-        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
-        body: {
-          filePath,
-          targetLanguage: selectedLanguage,
-          generateAudio: isVoiceMode,
-          question: inputQuery,
-          saved_qr_codes: savedQRs,
-          allow_citizen_billing: true,
-          use_personal_credits: true
+      const invokeFollowUp = async (pathToUse: string, sessionTok: string | null) => {
+        return await supabase.functions.invoke('read-mail', {
+          ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+          body: {
+            filePath: pathToUse,
+            targetLanguage: selectedLanguage,
+            generateAudio: isVoiceMode,
+            question: inputQuery,
+            saved_qr_codes: savedQRs,
+            allow_citizen_billing: true,
+            use_personal_credits: true,
+            ...(sessionTok ? { session_token: sessionTok } : {})
+          }
+        });
+      };
+
+      let { data, error } = await invokeFollowUp(filePath!, tokenToUse);
+
+      // Self-heal if ephemeral scan expired in storage while tab sat idle
+      const errCheck = (typeof error === 'object' ? JSON.stringify(error) : String(error || data?.error || '')).toLowerCase();
+      if ((error || data?.error) && errCheck.includes('not found') && currentImageFile.current) {
+        const freshPath = `scans/${Date.now()}_followup.jpg`;
+        const { error: reuploadErr } = await supabase.storage
+          .from('ephemeral_scans')
+          .upload(freshPath, currentImageFile.current, { upsert: false });
+        if (!reuploadErr) {
+          lastScanFilePath.current = freshPath;
+          scanSessionToken.current = null;
+          ({ data, error } = await invokeFollowUp(freshPath, null));
         }
-      });
+      }
 
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
+
+      if (data.session_token) {
+        scanSessionToken.current = data.session_token;
+      }
+      if (data.billed_to && data.billed_to.startsWith('citizen')) {
+        fetchUserCredits();
+      }
 
       setResultText(prev => `${prev}\n\nQ: ${inputQuery}\nA: ${data.result}`);
       setAudioBase64(data.audioBase64);
       
       if (isVoiceMode && data.audioBase64) {
-        playAudio(data.audioBase64); // Autoplay is safe here because user just interacted with mic
+        playAudio(data.audioBase64);
       }
     } catch (error: any) {
       console.error("Follow up error:", error);
-      alert(`Follow-up failed: ${error?.message || 'Please try again.'}`);
+      const status = error?.context?.status || error?.status || 0;
+      const errorStr = (typeof error === 'object' ? JSON.stringify(error) : String(error)).toLowerCase();
+
+      if (status === 402 || errorStr.includes('402') || errorStr.includes('insufficient')) {
+        setIsAgencyOffline(true);
+        setShowNoMatchModal(true);
+      } else {
+        alert(`Follow-up failed: ${error?.message || 'Please try again.'}`);
+      }
     } finally {
       setIsAskingQuestion(false);
       setCanShowFollowUp(true);
@@ -556,7 +599,6 @@ export default function AhaniWebScanner() {
     audioRef.current = snd;
     setIsPlaying(true);
     
-    // Promise catch prevents UI freeze if autoplay is blocked
     snd.play().catch((err) => {
       console.warn("Autoplay prevented by browser. User must click Listen manually.", err);
       setIsPlaying(false);
@@ -572,7 +614,6 @@ export default function AhaniWebScanner() {
     setCanShowFollowUp(true);
   };
 
-  // --- NEW: Added handleResetSession to cleanly wipe the form for a new scan ---
   const handleResetSession = () => {
     stopAudio();
     localStorage.removeItem(PENDING_SCAN_KEY);
@@ -583,12 +624,14 @@ export default function AhaniWebScanner() {
     currentImageFile.current = null;
     currentFilePath.current = null;
     lastScanFilePath.current = null;
+    scanSessionToken.current = null;
     pendingQrRetry.current = false;
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSignOut = async () => {
     localStorage.removeItem(PENDING_SCAN_KEY);
+    scanSessionToken.current = null;
     await supabase.auth.signOut();
     router.refresh();
   };
@@ -837,7 +880,6 @@ export default function AhaniWebScanner() {
           ) : resultText ? (
             <div className="space-y-4">
               
-              {/* --- NEW: Updated sticky header to include the dismiss X button alongside audio controls --- */}
               <div className="flex justify-between items-center sticky top-0 bg-white pb-2 border-b border-slate-50 z-10">
                 <div>
                   {isVoiceMode && (

@@ -11,6 +11,93 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
 
+// --- HMAC-SHA256 SESSION TOKEN HELPERS (Native Deno Web Crypto) ---
+const SESSION_TOKEN_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+let cachedHmacKey: CryptoKey | null = null;
+
+function toBase64Url(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(b64url: string): Uint8Array {
+  const padded = b64url.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((b64url.length + 3) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function getHmacKey(): Promise<CryptoKey> {
+  if (cachedHmacKey) return cachedHmacKey;
+  const secret = Deno.env.get('SESSION_SIGNING_SECRET') || Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
+  if (!secret) throw new Error('Missing signing secret for session_token');
+  cachedHmacKey = await crypto.subtle.importKey(
+    'raw',
+    textEncoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+  return cachedHmacKey;
+}
+
+async function signSessionToken(payload: {
+  mode: 'agency' | 'citizen';
+  aid: string | null;
+  cid: string | null;
+  fp: string;
+}): Promise<string> {
+  const key = await getHmacKey();
+  const fullPayload = {
+    ...payload,
+    exp: Date.now() + SESSION_TOKEN_TTL_MS,
+  };
+  const payloadBytes = textEncoder.encode(JSON.stringify(fullPayload));
+  const sigBuffer = await crypto.subtle.sign('HMAC', key, payloadBytes);
+  return `${toBase64Url(payloadBytes)}.${toBase64Url(new Uint8Array(sigBuffer))}`;
+}
+
+async function verifySessionToken(token: string, expectedFilePath: string) {
+  try {
+    if (!token || typeof token !== 'string' || !token.includes('.')) return null;
+    const parts = token.split('.');
+    if (parts.length !== 2) return null;
+
+    const key = await getHmacKey();
+    const payloadBytes = fromBase64Url(parts[0]);
+    const sigBytes = fromBase64Url(parts[1]);
+
+    // Constant-time HMAC verification
+    const isValid = await crypto.subtle.verify('HMAC', key, sigBytes, payloadBytes);
+    if (!isValid) {
+      console.warn('⚠️ Invalid session_token HMAC signature.');
+      return null;
+    }
+
+    const parsed = JSON.parse(textDecoder.decode(payloadBytes));
+    if (!parsed?.exp || Date.now() > parsed.exp) {
+      console.log('ℹ️ session_token expired, falling back to full DNA matcher.');
+      return null;
+    }
+    if (parsed.fp !== expectedFilePath) {
+      console.warn('⚠️ session_token filePath mismatch, falling back to full DNA matcher.');
+      return null;
+    }
+    return parsed;
+  } catch (err) {
+    console.warn('⚠️ Failed verifying session_token, falling back to full DNA matcher:', err);
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   // 1. MUST HAVE CORS FOR WEB BROWSER COMPATIBILITY
   const corsHeaders = {
@@ -31,10 +118,16 @@ Deno.serve(async (req) => {
       question, 
       saved_qr_codes,
       allow_citizen_billing,
-      use_personal_credits 
+      use_personal_credits,
+      session_token
     } = await req.json();
 
-    console.log("📥 Payload received | targetLanguage:", targetLanguage, "| use_personal_credits:", use_personal_credits, "| isFollowUp:", Boolean(question));
+    console.log(
+      "📥 Payload received | targetLanguage:", targetLanguage,
+      "| use_personal_credits:", use_personal_credits,
+      "| isFollowUp:", Boolean(question),
+      "| hasSessionToken:", Boolean(session_token)
+    );
 
     if (!filePath) {
       console.error("❌ ERROR: No file path provided.");
@@ -50,7 +143,6 @@ Deno.serve(async (req) => {
 
     if (urlError) throw urlError;
 
-    // FIX 1: Changed 'citizen' to 'citizen_paid' to pass ENUM validation
     let billedTo = 'citizen_paid'; 
     let matchedAgencyId = null;
     let targetCampaignId = null;
@@ -74,8 +166,60 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3. ATTEMPT AGENCY MATCHING FIRST (With new Highest-Score Campaign Routing)
-    if (saved_qr_codes && Array.isArray(saved_qr_codes) && saved_qr_codes.length > 0) {
+    // 3A. FAST-PATH: VERIFY SIGNED SESSION TOKEN ON FOLLOW-UPS (Skips gpt-4o-mini Vision Re-Match)
+    const verifiedSession = session_token ? await verifySessionToken(session_token, filePath) : null;
+
+    if (verifiedSession?.mode === 'agency' && verifiedSession.aid) {
+      console.log(`⚡ FAST-PATH: Verified HMAC session_token for Agency ${verifiedSession.aid}. Skipping gpt-4o-mini DNA re-match!`);
+
+      const { data: subData } = await supabase
+        .from('annual_subscriptions')
+        .select('scans_used, max_scans')
+        .eq('agency_id', verifiedSession.aid)
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (subData && subData.scans_used >= subData.max_scans) {
+        console.log("⚠️ Agency quota is depleted! Revoking session match and falling back to Citizen Billing.");
+      } else {
+        matchedAgencyId = verifiedSession.aid;
+        targetCampaignId = verifiedSession.cid || null;
+        billedTo = 'agency_fingerprint_match';
+
+        const { error: agencyBillError } = await supabase.rpc('process_scan_billing', {
+          p_billed_to: 'agency_fingerprint_match',
+          p_agency_id: matchedAgencyId,
+          p_citizen_id: null
+        });
+
+        if (agencyBillError) {
+          console.error("⚠️ process_scan_billing RPC error:", agencyBillError);
+        }
+
+        if (targetCampaignId) {
+          const { data: campRow } = await supabase
+            .from('campaigns')
+            .select('id, total_scans')
+            .eq('id', targetCampaignId)
+            .eq('agency_id', matchedAgencyId)
+            .maybeSingle();
+
+          if (campRow) {
+            await supabase
+              .from('campaigns')
+              .update({ total_scans: (campRow.total_scans || 0) + 1 })
+              .eq('id', campRow.id);
+          } else {
+            targetCampaignId = null;
+          }
+        }
+      }
+    } else if (verifiedSession?.mode === 'citizen') {
+      console.log("⚡ FAST-PATH: Verified HMAC session_token (citizen mode). Skipping redundant QR DNA matcher.");
+    }
+
+    // 3B. FULL AGENCY DNA MATCHING (Runs ONLY when no valid session_token is present)
+    if (!verifiedSession && saved_qr_codes && Array.isArray(saved_qr_codes) && saved_qr_codes.length > 0) {
       const clean_qr_codes = saved_qr_codes.map((code: string) => {
         const match = code.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
         return match ? match[0] : code;
@@ -377,11 +521,8 @@ You MUST respond strictly with a valid JSON object in this format:
     // 6. TELEMETRY & LOGGING (Run securely before returning)
     const processingTimeMs = Date.now() - executionStartTime;
     
-    // Map the Friction Heatmap bucket to the category column, or fallback to General Information
-    // FIX: The database 'category' column has strict DB constraints. We MUST use these exact strings!
     const documentCategory = question ? 'Request for Action / Info' : 'General Information';
 
-    // WORKAROUND: Since 'document_classification' is unrestricted free-text, we will store the friction bucket here for follow-up questions!
     const documentClassification = question 
       ? (aiPayload.friction_category || 'action_required')
       : (aiPayload.document_classification || 'UnrecognizedDocument');
@@ -426,11 +567,27 @@ You MUST respond strictly with a valid JSON object in this format:
       console.log("✅ Successfully logged to scan_logs");
     }
 
-    console.log(`✅ FUNCTION COMPLETE. Billed to: ${billedTo}`);
+    // Mint a signed 30-minute session_token on initial scans (or refresh if expired/re-matched)
+    let responseSessionToken = verifiedSession ? session_token : null;
+    if (!responseSessionToken) {
+      try {
+        responseSessionToken = await signSessionToken({
+          mode: matchedAgencyId ? 'agency' : 'citizen',
+          aid: matchedAgencyId,
+          cid: targetCampaignId,
+          fp: filePath,
+        });
+      } catch (signErr) {
+        console.warn("⚠️ Non-fatal error signing session_token:", signErr);
+      }
+    }
+
+    console.log(`✅ FUNCTION COMPLETE in ${processingTimeMs}ms. Billed to: ${billedTo}`);
     return new Response(JSON.stringify({ 
       result: cleanText, 
       audioBase64: audioBase64,
-      billed_to: billedTo
+      billed_to: billedTo,
+      session_token: responseSessionToken
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
