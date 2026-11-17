@@ -61,9 +61,11 @@ async function ProtectedDashboardContent() {
   const getTierDisplay = (tier?: string) => {
     switch(tier) {
       case 'free_pilot': return 'Self-Serve Pilot';
+      case 'top_off': return 'Standard Top-Off';
       case 'clinic': return 'Single Clinic';
       case 'department': return 'Department Tier';
       case 'county': return 'County Tier';
+      case 'enterprise': return 'Enterprise Tier';
       default: return 'Active Plan';
     }
   };
@@ -88,7 +90,7 @@ async function ProtectedDashboardContent() {
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex justify-between items-start mb-2">
-              <p className="text-sm font-bold text-slate-500">Annual Scan Quota</p>
+              <p className="text-sm font-bold text-slate-500">Annual Session Quota</p>
               <span className="bg-blue-50 text-blue-700 text-xs font-bold px-2 py-1 rounded">
                 {getTierDisplay(subscription?.plan_tier)}
               </span>
@@ -96,7 +98,7 @@ async function ProtectedDashboardContent() {
             <p className="text-4xl font-extrabold text-slate-900 mt-2">
               {scansUsed.toLocaleString()} <span className="text-lg font-medium text-slate-400">/ {maxScans.toLocaleString()}</span>
             </p>
-            <p className="text-sm text-slate-500 mt-1">scans used</p>
+            <p className="text-sm text-slate-500 mt-1">sessions used</p>
           </div>
           
           <div className="mt-8">
@@ -130,7 +132,7 @@ async function ProtectedDashboardContent() {
             <span className="bg-green-50 text-green-700 text-xs font-bold px-2 py-1 rounded">High ROI</span>
           </div>
           <p className="text-sm text-slate-500 mb-4">
-            By providing instant audio translations, Ahani has deflected an estimated {scansUsed.toLocaleString()} calls from your support center.
+            By providing first-line spoken interpretations, Ahani has resolved an estimated {scansUsed.toLocaleString()} routine inquiries before they reached your support center.
           </p>
           <p className="text-4xl font-extrabold text-green-600">
             ${costSavings.toLocaleString()}
@@ -144,6 +146,10 @@ async function ProtectedDashboardContent() {
 
       {/* Campaign Ledger Table */}
       <CampaignTable agencyId={profile.agency_id} />
+
+      <p className="text-xs text-slate-400 text-center pt-2">
+        *Each session covers a single AI interaction, such as an initial document interpretation or a spoken follow-up answer.
+      </p>
     </>
   );
 }
